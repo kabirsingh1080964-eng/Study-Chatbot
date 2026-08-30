@@ -7,7 +7,7 @@ from pypdf import PdfReader
 # -----------------------------
 st.set_page_config(
     page_title="ASH Study Assistant",
-    page_icon="🎓",
+    page_icon="logo.png",
     layout="centered"
 )
 
