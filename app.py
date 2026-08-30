@@ -19,7 +19,7 @@ client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 # -----------------------------
 # TITLE
 # -----------------------------
-st.title("🎓 AI Study Assistant")
+st.title("🎓 ASH Study Assistant")
 st.write("Ask me anything about your studies!")
 
 # -----------------------------
