@@ -61,16 +61,13 @@ st.write(
 for message in st.session_state.messages:
 
     with st.chat_message(message["role"]):
-
         st.markdown(message["content"])
 
 # ============================================================
-# PLUS MENU
+# PLUS BUTTON
 # ============================================================
 
-st.markdown("###")
-
-plus_col, chat_col = st.columns(
+plus_col, empty_col = st.columns(
     [1, 8],
     vertical_alignment="bottom"
 )
@@ -84,30 +81,27 @@ with plus_col:
 
         st.subheader("Study Tools")
 
-        # ----------------------------------------------------
+        # ====================================================
         # STUDY MODE
-        # ----------------------------------------------------
+        # ====================================================
 
         st.write("📚 Choose Study Mode")
 
+        study_modes = [
+            "💬 Normal Chat",
+            "📚 Explain Topic",
+            "📝 Make Notes",
+            "❓ Generate MCQs",
+            "🎯 Exam Questions",
+            "🎨 Generate Image"
+        ]
+
         selected_mode = st.radio(
             "Study Mode",
-            [
-                "💬 Normal Chat",
-                "📚 Explain Topic",
-                "📝 Make Notes",
-                "❓ Generate MCQs",
-                "🎯 Exam Questions",
-                "🎨 Generate Image"
-            ],
-            index=[
-                "💬 Normal Chat",
-                "📚 Explain Topic",
-                "📝 Make Notes",
-                "❓ Generate MCQs",
-                "🎯 Exam Questions",
-                "🎨 Generate Image"
-            ].index(st.session_state.selected_mode),
+            study_modes,
+            index=study_modes.index(
+                st.session_state.selected_mode
+            ),
             label_visibility="collapsed"
         )
 
@@ -115,9 +109,9 @@ with plus_col:
 
         st.divider()
 
-        # ----------------------------------------------------
+        # ====================================================
         # PDF UPLOAD
-        # ----------------------------------------------------
+        # ====================================================
 
         st.write("📄 Upload Study Material")
 
@@ -174,85 +168,9 @@ with plus_col:
 
         st.divider()
 
-        # ----------------------------------------------------
-        # VOICE INPUT
-        # ----------------------------------------------------
-
-        st.write("🎤 Ask by Voice")
-
-        audio_value = st.audio_input(
-            "Record your question",
-            label_visibility="collapsed"
-        )
-
-        if audio_value is not None:
-
-            if st.button(
-                "🎤 Use This Voice Question",
-                use_container_width=True
-            ):
-
-                with st.spinner(
-                    "🎧 Understanding your voice..."
-                ):
-
-                    try:
-
-                        audio_file = client.files.upload(
-                            file=audio_value,
-                            config={
-                                "mime_type": "audio/wav"
-                            }
-                        )
-
-                        voice_response = (
-                            client.models.generate_content(
-                                model="gemini-3.6-flash",
-                                contents=[
-                                    audio_file,
-                                    """
-                                    Listen to the student's
-                                    spoken question.
-
-                                    Convert the spoken question
-                                    into text.
-
-                                    Return ONLY the question.
-                                    Do not answer it.
-                                    """
-                                ]
-                            )
-                        )
-
-                        voice_text = (
-                            voice_response.text.strip()
-                        )
-
-                        st.session_state.voice_question = (
-                            voice_text
-                        )
-
-                        st.success(
-                            "🎤 Voice question detected!"
-                        )
-
-                        st.write(
-                            voice_text
-                        )
-
-                    except Exception as e:
-
-                        st.error(
-                            "❌ Could not understand the recording."
-                        )
-
-                        st.code(str(e))
-
-        st.divider()
-
-        # ----------------------------------------------------
-        # CLEAR PDF
-        # ----------------------------------------------------
+        # ====================================================
+        # REMOVE PDF
+        # ====================================================
 
         if st.session_state.pdf_name:
 
@@ -267,7 +185,16 @@ with plus_col:
                 st.rerun()
 
 # ============================================================
-# CHAT INPUT
+# CHAT + VOICE AREA
+# ============================================================
+
+chat_col, voice_col = st.columns(
+    [8, 1],
+    vertical_alignment="bottom"
+)
+
+# ============================================================
+# TEXT CHAT INPUT
 # ============================================================
 
 with chat_col:
@@ -277,13 +204,68 @@ with chat_col:
     )
 
 # ============================================================
-# GET VOICE QUESTION
+# VOICE INPUT
 # ============================================================
 
-voice_prompt = st.session_state.get(
-    "voice_question",
-    None
-)
+with voice_col:
+
+    audio_value = st.audio_input(
+        "🎤",
+        label_visibility="collapsed"
+    )
+
+# ============================================================
+# VOICE PROCESSING
+# ============================================================
+
+voice_prompt = None
+
+if audio_value is not None:
+
+    with st.spinner(
+        "🎧 Understanding your voice..."
+    ):
+
+        try:
+
+            audio_file = client.files.upload(
+                file=audio_value,
+                config={
+                    "mime_type": "audio/wav"
+                }
+            )
+
+            voice_response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=[
+                    audio_file,
+                    """
+                    Listen to the student's spoken question.
+
+                    Convert the spoken question into text.
+
+                    Return ONLY the student's question.
+                    Do not answer the question.
+                    """
+                ]
+            )
+
+            voice_prompt = (
+                voice_response.text.strip()
+            )
+
+            st.info(
+                "🎤 Voice question: "
+                + voice_prompt
+            )
+
+        except Exception as e:
+
+            st.error(
+                "❌ Could not understand the recording."
+            )
+
+            st.code(str(e))
 
 # ============================================================
 # SELECT QUESTION
@@ -295,18 +277,15 @@ if voice_prompt:
 
     prompt = voice_prompt
 
-    # Remove it after using it
-    del st.session_state.voice_question
-
 # ============================================================
 # PROCESS QUESTION
 # ============================================================
 
 if prompt:
 
-    # --------------------------------------------------------
+    # ========================================================
     # SAVE USER MESSAGE
-    # --------------------------------------------------------
+    # ========================================================
 
     st.session_state.messages.append(
         {
@@ -319,15 +298,15 @@ if prompt:
 
         st.markdown(prompt)
 
-    # --------------------------------------------------------
-    # GET CURRENT MODE
-    # --------------------------------------------------------
+    # ========================================================
+    # CURRENT STUDY MODE
+    # ========================================================
 
     mode = st.session_state.selected_mode
 
-    # --------------------------------------------------------
+    # ========================================================
     # STUDY MODE INSTRUCTIONS
-    # --------------------------------------------------------
+    # ========================================================
 
     instructions = {
 
@@ -340,7 +319,12 @@ if prompt:
         "📚 Explain Topic":
             """
             Explain the topic in extremely simple words.
-            Use examples and step-by-step explanations.
+
+            Use:
+            - Simple language
+            - Examples
+            - Step-by-step explanations
+
             Assume the student is a beginner.
             """,
 
@@ -360,7 +344,8 @@ if prompt:
             """
             Create 10 important multiple-choice questions.
 
-            Each question must have:
+            Each question must contain:
+
             A
             B
             C
@@ -382,14 +367,14 @@ if prompt:
 
         "🎨 Generate Image":
             """
-            The student wants to generate an educational
-            image or diagram.
+            The student wants to generate an
+            educational image or diagram.
             """
     }
 
-    # --------------------------------------------------------
+    # ========================================================
     # PDF INSTRUCTIONS
-    # --------------------------------------------------------
+    # ========================================================
 
     if st.session_state.pdf_text:
 
@@ -476,9 +461,7 @@ Use your normal knowledge to answer the question.
                     "❌ Image generation failed."
                 )
 
-                st.code(
-                    str(e)
-                )
+                st.code(str(e))
 
     # ========================================================
     # NORMAL AI CHAT
@@ -509,9 +492,9 @@ RULES:
 {pdf_instructions}
 """
 
-        # ----------------------------------------------------
+        # ====================================================
         # GEMINI RESPONSE
-        # ----------------------------------------------------
+        # ====================================================
 
         with st.chat_message("assistant"):
 
@@ -534,9 +517,9 @@ RULES:
 
                     st.markdown(answer)
 
-                    # ------------------------------------------------
+                    # ----------------------------------------
                     # SAVE AI RESPONSE
-                    # ------------------------------------------------
+                    # ----------------------------------------
 
                     st.session_state.messages.append(
                         {
@@ -551,6 +534,4 @@ RULES:
                         "❌ Something went wrong."
                     )
 
-                    st.code(
-                        str(e)
-                    )
+                    st.code(str(e))
