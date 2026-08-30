@@ -64,13 +64,38 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # ============================================================
-# PLUS BUTTON
+# BOTTOM TOOL AREA
 # ============================================================
 
-plus_col, empty_col = st.columns(
-    [1, 8],
+voice_col, chat_col, plus_col = st.columns(
+    [1, 7, 1],
     vertical_alignment="bottom"
 )
+
+# ============================================================
+# VOICE BUTTON - LEFT SIDE
+# ============================================================
+
+with voice_col:
+
+    audio_value = st.audio_input(
+        "🎤",
+        label_visibility="collapsed"
+    )
+
+# ============================================================
+# CHAT INPUT - CENTER
+# ============================================================
+
+with chat_col:
+
+    typed_prompt = st.chat_input(
+        "Ask anything about your studies..."
+    )
+
+# ============================================================
+# PLUS BUTTON - RIGHT SIDE
+# ============================================================
 
 with plus_col:
 
@@ -82,7 +107,7 @@ with plus_col:
         st.subheader("Study Tools")
 
         # ====================================================
-        # STUDY MODE
+        # STUDY MODES
         # ====================================================
 
         st.write("📚 Choose Study Mode")
@@ -185,36 +210,6 @@ with plus_col:
                 st.rerun()
 
 # ============================================================
-# CHAT + VOICE AREA
-# ============================================================
-
-chat_col, voice_col = st.columns(
-    [8, 1],
-    vertical_alignment="bottom"
-)
-
-# ============================================================
-# TEXT CHAT INPUT
-# ============================================================
-
-with chat_col:
-
-    typed_prompt = st.chat_input(
-        "Ask anything about your studies..."
-    )
-
-# ============================================================
-# VOICE INPUT
-# ============================================================
-
-with voice_col:
-
-    audio_value = st.audio_input(
-        "🎤",
-        label_visibility="collapsed"
-    )
-
-# ============================================================
 # VOICE PROCESSING
 # ============================================================
 
@@ -245,6 +240,7 @@ if audio_value is not None:
                     Convert the spoken question into text.
 
                     Return ONLY the student's question.
+
                     Do not answer the question.
                     """
                 ]
@@ -299,7 +295,7 @@ if prompt:
         st.markdown(prompt)
 
     # ========================================================
-    # CURRENT STUDY MODE
+    # CURRENT MODE
     # ========================================================
 
     mode = st.session_state.selected_mode
@@ -518,7 +514,7 @@ RULES:
                     st.markdown(answer)
 
                     # ----------------------------------------
-                    # SAVE AI RESPONSE
+                    # SAVE RESPONSE
                     # ----------------------------------------
 
                     st.session_state.messages.append(
