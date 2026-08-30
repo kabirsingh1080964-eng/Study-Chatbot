@@ -1,5 +1,7 @@
+```python
 import streamlit as st
 from google import genai
+from pypdf import PdfReader
 
 # -----------------------------
 # PAGE SETTINGS
@@ -20,6 +22,32 @@ client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 # -----------------------------
 st.title("🎓 AI Study Assistant")
 st.write("Ask me anything about your studies!")
+
+# -----------------------------
+# PDF UPLOAD
+# -----------------------------
+st.sidebar.header("📄 Study Material")
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload your university notes (PDF)",
+    type=["pdf"]
+)
+
+pdf_text = ""
+
+if uploaded_file is not None:
+
+    pdf_reader = PdfReader(uploaded_file)
+
+    for page in pdf_reader.pages:
+        text = page.extract_text()
+
+        if text:
+            pdf_text += text + "\n"
+
+    st.sidebar.success(
+        f"✅ PDF loaded! {len(pdf_reader.pages)} pages found."
+    )
 
 # -----------------------------
 # STUDY MODE
@@ -59,7 +87,9 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Instructions for AI
+    # -----------------------------
+    # STUDY MODE INSTRUCTIONS
+    # -----------------------------
     instructions = {
         "💬 Normal Chat":
             "Answer the student's question clearly and accurately.",
@@ -81,6 +111,38 @@ if prompt:
             "Include both short and long questions."
     }
 
+    # -----------------------------
+    # PDF INSTRUCTIONS
+    # -----------------------------
+    if pdf_text:
+
+        pdf_instructions = f"""
+The student has uploaded university study material.
+
+IMPORTANT:
+- Use the uploaded PDF as the main source for your answer.
+- Answer the student's question based on the PDF.
+- If the answer is not available in the PDF, clearly say:
+  "I couldn't find this information in your uploaded PDF."
+- Do not invent information and pretend it came from the PDF.
+
+UPLOADED PDF CONTENT:
+--------------------
+{pdf_text}
+--------------------
+"""
+
+    else:
+
+        pdf_instructions = """
+No PDF has been uploaded.
+
+Answer the student's question using your normal knowledge.
+"""
+
+    # -----------------------------
+    # SYSTEM PROMPT
+    # -----------------------------
     system_prompt = f"""
 You are an AI Study Assistant.
 
@@ -95,6 +157,8 @@ Rules:
 - Give examples whenever useful.
 - Do not unnecessarily use complicated terminology.
 - If the student asks for an exam answer, make it easy to memorize.
+
+{pdf_instructions}
 """
 
     # -----------------------------
@@ -106,13 +170,19 @@ Rules:
 
             response = client.models.generate_content(
                 model="gemini-3.6-flash",
-                contents=system_prompt + "\n\nStudent question:\n" + prompt
+                contents=system_prompt
+                + "\n\nStudent question:\n"
+                + prompt
             )
 
             answer = response.text
 
             st.markdown(answer)
 
+    # -----------------------------
+    # SAVE AI RESPONSE
+    # -----------------------------
     st.session_state.messages.append(
         {"role": "assistant", "content": answer}
     )
+```
