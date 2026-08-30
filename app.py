@@ -1,381 +1,558 @@
+```python
 import streamlit as st
 from google import genai
 from pypdf import PdfReader
 from huggingface_hub import InferenceClient
 from io import BytesIO
 
-# -----------------------------
+# ============================================================
 # PAGE SETTINGS
-# -----------------------------
+# ============================================================
+
 st.set_page_config(
     page_title="ASH Study Assistant",
     page_icon="logo.png",
     layout="centered"
 )
 
-# -----------------------------
-# GEMINI CONNECTION
-# -----------------------------
+# ============================================================
+# API CONNECTIONS
+# ============================================================
+
 client = genai.Client(
     api_key=st.secrets["GEMINI_API_KEY"]
 )
 
-# -----------------------------
-# HUGGING FACE CONNECTION
-# -----------------------------
 image_client = InferenceClient(
     api_key=st.secrets["HF_TOKEN"]
 )
 
-# -----------------------------
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "pdf_text" not in st.session_state:
+    st.session_state.pdf_text = ""
+
+if "pdf_name" not in st.session_state:
+    st.session_state.pdf_name = ""
+
+if "selected_mode" not in st.session_state:
+    st.session_state.selected_mode = "💬 Normal Chat"
+
+# ============================================================
 # TITLE
-# -----------------------------
+# ============================================================
+
 st.image("logo.png", width=150)
 
 st.title("ASH Study Assistant")
 
 st.write(
-    "Ask me anything about your studies!"
-)
-
-# -----------------------------
-# PDF UPLOAD
-# -----------------------------
-st.sidebar.header("📄 Study Material")
-
-uploaded_file = st.sidebar.file_uploader(
-    "Upload your university notes (PDF)",
-    type=["pdf"]
-)
-
-pdf_text = ""
-
-if uploaded_file is not None:
-
-    pdf_reader = PdfReader(uploaded_file)
-
-    for page in pdf_reader.pages:
-
-        text = page.extract_text()
-
-        if text:
-            pdf_text += text + "\n"
-
-    st.sidebar.success(
-        f"✅ PDF loaded! {len(pdf_reader.pages)} pages found."
-    )
-
-# -----------------------------
-# STUDY MODE
-# -----------------------------
-mode = st.selectbox(
-    "Choose Study Mode",
-    [
-        "💬 Normal Chat",
-        "📚 Explain Topic",
-        "📝 Make Notes",
-        "❓ Generate MCQs",
-        "🎯 Exam Questions",
-        "🎨 Generate Image"
-    ]
+    "Your AI-powered university study assistant."
 )
 
 # ============================================================
-# IMAGE GENERATOR
+# DISPLAY CHAT HISTORY
 # ============================================================
 
-if mode == "🎨 Generate Image":
+for message in st.session_state.messages:
 
-    st.header("🎨 AI Image Generator")
+    with st.chat_message(message["role"]):
 
-    st.write(
-        "Describe the image you want and AI will create it."
-    )
+        st.markdown(message["content"])
 
-    image_prompt = st.text_area(
-        "Describe your image",
-        placeholder=(
-            "Example: Create a simple educational diagram "
-            "showing the water cycle with evaporation, "
-            "condensation, precipitation and collection."
-        ),
-        height=120
-    )
+# ============================================================
+# PLUS MENU
+# ============================================================
 
-    if st.button(
-        "🎨 Generate Image",
+st.markdown("###")
+
+plus_col, chat_col = st.columns(
+    [1, 8],
+    vertical_alignment="bottom"
+)
+
+with plus_col:
+
+    with st.popover(
+        "+",
         use_container_width=True
     ):
 
-        if not image_prompt.strip():
+        st.subheader("Study Tools")
 
-            st.warning(
-                "Please describe the image you want."
-            )
+        # ----------------------------------------------------
+        # STUDY MODE
+        # ----------------------------------------------------
 
-        else:
+        st.write("📚 Choose Study Mode")
 
-            with st.spinner(
-                "🎨 Creating your image..."
-            ):
+        selected_mode = st.radio(
+            "Study Mode",
+            [
+                "💬 Normal Chat",
+                "📚 Explain Topic",
+                "📝 Make Notes",
+                "❓ Generate MCQs",
+                "🎯 Exam Questions",
+                "🎨 Generate Image"
+            ],
+            index=[
+                "💬 Normal Chat",
+                "📚 Explain Topic",
+                "📝 Make Notes",
+                "❓ Generate MCQs",
+                "🎯 Exam Questions",
+                "🎨 Generate Image"
+            ].index(st.session_state.selected_mode),
+            label_visibility="collapsed"
+        )
 
-                try:
+        st.session_state.selected_mode = selected_mode
 
-                    image = image_client.text_to_image(
-                        prompt=image_prompt,
-                        model="black-forest-labs/FLUX.1-schnell"
-                    )
+        st.divider()
 
-                    st.image(
-                        image,
-                        caption="Generated by ASH Study Assistant",
-                        use_container_width=True
-                    )
+        # ----------------------------------------------------
+        # PDF UPLOAD
+        # ----------------------------------------------------
 
-                    image_bytes = BytesIO()
+        st.write("📄 Upload Study Material")
 
-                    image.save(
-                        image_bytes,
-                        format="PNG"
-                    )
+        uploaded_file = st.file_uploader(
+            "Choose your PDF",
+            type=["pdf"],
+            label_visibility="collapsed"
+        )
 
-                    image_bytes = image_bytes.getvalue()
-
-                    st.download_button(
-                        label="⬇️ Download Image",
-                        data=image_bytes,
-                        file_name="ash_study_image.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
-
-                except Exception as e:
-
-                    st.error(
-                        "❌ Image generation failed."
-                    )
-
-                    st.code(str(e))
-
-
-# ============================================================
-# NORMAL STUDY CHAT
-# ============================================================
-
-else:
-
-    # -----------------------------
-    # CHAT HISTORY
-    # -----------------------------
-    if "messages" not in st.session_state:
-
-        st.session_state.messages = []
-
-    for message in st.session_state.messages:
-
-        with st.chat_message(message["role"]):
-
-            st.markdown(
-                message["content"]
-            )
-
-    # -----------------------------
-    # TEXT INPUT
-    # -----------------------------
-    typed_prompt = st.chat_input(
-        "Ask your study question..."
-    )
-
-    # -----------------------------
-    # VOICE INPUT
-    # -----------------------------
-    st.subheader("🎤 Ask by Voice")
-
-    audio_value = st.audio_input(
-        "Record your question"
-    )
-
-    voice_prompt = None
-
-    if audio_value is not None:
-
-        with st.spinner(
-            "🎧 Understanding your voice..."
-        ):
+        if uploaded_file is not None:
 
             try:
 
-                audio_file = client.files.upload(
-                    file=audio_value,
-                    config={
-                        "mime_type": "audio/wav"
-                    }
+                pdf_reader = PdfReader(
+                    uploaded_file
                 )
 
-                response = client.models.generate_content(
-                    model="gemini-3.6-flash",
-                    contents=[
-                        audio_file,
-                        """
-                        Listen to the student's spoken question.
+                pdf_text = ""
 
-                        Convert the spoken question into text.
+                for page in pdf_reader.pages:
 
-                        Return ONLY the student's question.
-                        Do not answer the question.
-                        """
-                    ]
+                    text = page.extract_text()
+
+                    if text:
+                        pdf_text += text + "\n"
+
+                st.session_state.pdf_text = pdf_text
+
+                st.session_state.pdf_name = (
+                    uploaded_file.name
                 )
-
-                voice_prompt = response.text.strip()
 
                 st.success(
-                    "🎤 Voice question detected:"
+                    f"✅ {uploaded_file.name} loaded!"
                 )
 
-                st.write(
-                    voice_prompt
+                st.caption(
+                    f"{len(pdf_reader.pages)} pages"
                 )
 
             except Exception as e:
 
                 st.error(
-                    "❌ Could not understand the recording."
+                    "❌ Could not read this PDF."
+                )
+
+                st.code(str(e))
+
+        elif st.session_state.pdf_name:
+
+            st.success(
+                f"📄 {st.session_state.pdf_name} is loaded"
+            )
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # VOICE INPUT
+        # ----------------------------------------------------
+
+        st.write("🎤 Ask by Voice")
+
+        audio_value = st.audio_input(
+            "Record your question",
+            label_visibility="collapsed"
+        )
+
+        if audio_value is not None:
+
+            if st.button(
+                "🎤 Use This Voice Question",
+                use_container_width=True
+            ):
+
+                with st.spinner(
+                    "🎧 Understanding your voice..."
+                ):
+
+                    try:
+
+                        audio_file = client.files.upload(
+                            file=audio_value,
+                            config={
+                                "mime_type": "audio/wav"
+                            }
+                        )
+
+                        voice_response = (
+                            client.models.generate_content(
+                                model="gemini-3.6-flash",
+                                contents=[
+                                    audio_file,
+                                    """
+                                    Listen to the student's
+                                    spoken question.
+
+                                    Convert the spoken question
+                                    into text.
+
+                                    Return ONLY the question.
+                                    Do not answer it.
+                                    """
+                                ]
+                            )
+                        )
+
+                        voice_text = (
+                            voice_response.text.strip()
+                        )
+
+                        st.session_state.voice_question = (
+                            voice_text
+                        )
+
+                        st.success(
+                            "🎤 Voice question detected!"
+                        )
+
+                        st.write(
+                            voice_text
+                        )
+
+                    except Exception as e:
+
+                        st.error(
+                            "❌ Could not understand the recording."
+                        )
+
+                        st.code(str(e))
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # CLEAR PDF
+        # ----------------------------------------------------
+
+        if st.session_state.pdf_name:
+
+            if st.button(
+                "🗑️ Remove PDF",
+                use_container_width=True
+            ):
+
+                st.session_state.pdf_text = ""
+                st.session_state.pdf_name = ""
+
+                st.rerun()
+
+# ============================================================
+# CHAT INPUT
+# ============================================================
+
+with chat_col:
+
+    typed_prompt = st.chat_input(
+        "Ask anything about your studies..."
+    )
+
+# ============================================================
+# GET VOICE QUESTION
+# ============================================================
+
+voice_prompt = st.session_state.get(
+    "voice_question",
+    None
+)
+
+# ============================================================
+# SELECT QUESTION
+# ============================================================
+
+prompt = typed_prompt
+
+if voice_prompt:
+
+    prompt = voice_prompt
+
+    # Remove it after using it
+    del st.session_state.voice_question
+
+# ============================================================
+# PROCESS QUESTION
+# ============================================================
+
+if prompt:
+
+    # --------------------------------------------------------
+    # SAVE USER MESSAGE
+    # --------------------------------------------------------
+
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": prompt
+        }
+    )
+
+    with st.chat_message("user"):
+
+        st.markdown(prompt)
+
+    # --------------------------------------------------------
+    # GET CURRENT MODE
+    # --------------------------------------------------------
+
+    mode = st.session_state.selected_mode
+
+    # --------------------------------------------------------
+    # STUDY MODE INSTRUCTIONS
+    # --------------------------------------------------------
+
+    instructions = {
+
+        "💬 Normal Chat":
+            """
+            Answer the student's question clearly
+            and accurately.
+            """,
+
+        "📚 Explain Topic":
+            """
+            Explain the topic in extremely simple words.
+            Use examples and step-by-step explanations.
+            Assume the student is a beginner.
+            """,
+
+        "📝 Make Notes":
+            """
+            Convert the topic into short,
+            easy-to-revise study notes.
+
+            Use:
+            - Headings
+            - Bullet points
+            - Important definitions
+            - Examples
+            """,
+
+        "❓ Generate MCQs":
+            """
+            Create 10 important multiple-choice questions.
+
+            Each question must have:
+            A
+            B
+            C
+            D
+
+            Clearly identify the correct answer.
+            """,
+
+        "🎯 Exam Questions":
+            """
+            Create important university exam-style
+            questions.
+
+            Include:
+            - Short questions
+            - Long questions
+            - Important concepts
+            """,
+
+        "🎨 Generate Image":
+            """
+            The student wants to generate an educational
+            image or diagram.
+            """
+    }
+
+    # --------------------------------------------------------
+    # PDF INSTRUCTIONS
+    # --------------------------------------------------------
+
+    if st.session_state.pdf_text:
+
+        pdf_instructions = f"""
+The student has uploaded university study material.
+
+IMPORTANT RULES:
+
+1. Use the uploaded PDF as the MAIN source.
+2. Answer the question using information from the PDF.
+3. Do not invent information and claim it came from
+   the PDF.
+4. If the answer cannot be found in the PDF, clearly say:
+
+"I couldn't find this information in your uploaded PDF."
+
+UPLOADED PDF:
+
+-------------------------
+{st.session_state.pdf_text}
+-------------------------
+"""
+
+    else:
+
+        pdf_instructions = """
+No PDF has been uploaded.
+
+Use your normal knowledge to answer the question.
+"""
+
+    # ========================================================
+    # IMAGE GENERATION
+    # ========================================================
+
+    if mode == "🎨 Generate Image":
+
+        st.subheader(
+            "🎨 AI Image Generator"
+        )
+
+        with st.spinner(
+            "🎨 Creating your image..."
+        ):
+
+            try:
+
+                image = image_client.text_to_image(
+                    prompt=prompt,
+                    model="black-forest-labs/FLUX.1-schnell"
+                )
+
+                st.image(
+                    image,
+                    caption=(
+                        "Generated by "
+                        "ASH Study Assistant"
+                    ),
+                    use_container_width=True
+                )
+
+                image_bytes = BytesIO()
+
+                image.save(
+                    image_bytes,
+                    format="PNG"
+                )
+
+                image_bytes = (
+                    image_bytes.getvalue()
+                )
+
+                st.download_button(
+                    label="⬇️ Download Image",
+                    data=image_bytes,
+                    file_name="ash_study_image.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+
+            except Exception as e:
+
+                st.error(
+                    "❌ Image generation failed."
                 )
 
                 st.code(
                     str(e)
                 )
 
-    # -----------------------------
-    # CHOOSE TEXT OR VOICE
-    # -----------------------------
-    prompt = typed_prompt
+    # ========================================================
+    # NORMAL AI CHAT
+    # ========================================================
 
-    if voice_prompt:
+    else:
 
-        prompt = voice_prompt
-
-    # -----------------------------
-    # PROCESS QUESTION
-    # -----------------------------
-    if prompt:
-
-        st.session_state.messages.append(
-            {
-                "role": "user",
-                "content": prompt
-            }
-        )
-
-        with st.chat_message("user"):
-
-            st.markdown(prompt)
-
-        # -----------------------------
-        # STUDY MODE INSTRUCTIONS
-        # -----------------------------
-        instructions = {
-
-            "💬 Normal Chat":
-                "Answer the student's question clearly and accurately.",
-
-            "📚 Explain Topic":
-                "Explain the topic in extremely simple words. "
-                "Use examples and step-by-step explanations.",
-
-            "📝 Make Notes":
-                "Convert the student's topic into short, "
-                "easy-to-revise study notes with headings "
-                "and bullet points.",
-
-            "❓ Generate MCQs":
-                "Create 10 important multiple-choice questions. "
-                "Give four options and clearly identify the correct answer.",
-
-            "🎯 Exam Questions":
-                "Create important exam-style questions from this topic. "
-                "Include both short and long questions."
-        }
-
-        # -----------------------------
-        # PDF INSTRUCTIONS
-        # -----------------------------
-        if pdf_text:
-
-            pdf_instructions = f"""
-The student has uploaded university study material.
-
-IMPORTANT:
-- Use the uploaded PDF as the main source for your answer.
-- Answer the student's question based on the PDF.
-- If the answer is not available in the PDF, clearly say:
-  "I couldn't find this information in your uploaded PDF."
-- Do not invent information and pretend it came from the PDF.
-
-UPLOADED PDF CONTENT:
---------------------
-{pdf_text}
---------------------
-"""
-
-        else:
-
-            pdf_instructions = """
-No PDF has been uploaded.
-
-Answer the student's question using your normal knowledge.
-"""
-
-        # -----------------------------
-        # SYSTEM PROMPT
-        # -----------------------------
         system_prompt = f"""
-You are an AI Study Assistant.
+You are ASH Study Assistant.
 
-Your goal is to help university students learn.
+Your goal is to help university students
+understand their subjects.
 
-Study mode:
+CURRENT STUDY MODE:
+
 {instructions[mode]}
 
-Rules:
+RULES:
+
 - Use simple English.
 - Explain difficult concepts step by step.
 - Give examples whenever useful.
-- Do not unnecessarily use complicated terminology.
-- If the student asks for an exam answer, make it easy to memorize.
+- Avoid unnecessary complicated terminology.
+- Make exam answers easy to memorize.
+- Be accurate.
+- Be helpful and educational.
 
 {pdf_instructions}
 """
 
-        # -----------------------------
-        # AI RESPONSE
-        # -----------------------------
+        # ----------------------------------------------------
+        # GEMINI RESPONSE
+        # ----------------------------------------------------
+
         with st.chat_message("assistant"):
 
             with st.spinner(
-                "Thinking..."
+                "🤖 Thinking..."
             ):
 
-                response = client.models.generate_content(
-                    model="gemini-3.6-flash",
-                    contents=(
-                        system_prompt
-                        + "\n\nStudent question:\n"
-                        + prompt
+                try:
+
+                    response = client.models.generate_content(
+                        model="gemini-3.6-flash",
+                        contents=(
+                            system_prompt
+                            + "\n\nStudent question:\n"
+                            + prompt
+                        )
                     )
-                )
 
-                answer = response.text
+                    answer = response.text
 
-                st.markdown(answer)
+                    st.markdown(answer)
 
-        # -----------------------------
-        # SAVE AI RESPONSE
-        # -----------------------------
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": answer
-            }
-        )
+                    # ------------------------------------------------
+                    # SAVE AI RESPONSE
+                    # ------------------------------------------------
+
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": answer
+                        }
+                    )
+
+                except Exception as e:
+
+                    st.error(
+                        "❌ Something went wrong."
+                    )
+
+                    st.code(
+                        str(e)
+                    )
+```
