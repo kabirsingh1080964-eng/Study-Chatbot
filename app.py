@@ -6,7 +6,7 @@ from pypdf import PdfReader
 # PAGE SETTINGS
 # -----------------------------
 st.set_page_config(
-    page_title="AI Study Assistant",
+    page_title="ASH Study Assistant",
     page_icon="🎓",
     layout="centered"
 )
