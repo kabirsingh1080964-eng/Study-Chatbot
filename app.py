@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 from google import genai
 from pypdf import PdfReader
@@ -185,4 +184,3 @@ Rules:
     st.session_state.messages.append(
         {"role": "assistant", "content": answer}
     )
-```
