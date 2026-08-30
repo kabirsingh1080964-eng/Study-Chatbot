@@ -208,9 +208,12 @@ if audio_value is not None:
     with st.spinner("🎧 Understanding your voice..."):
 
         try:
-            audio_file = client.files.upload(
-                file=audio_value
-            )
+           audio_file = client.files.upload(
+    file=audio_value,
+    config={
+        "mime_type": "audio/wav"
+    }
+)
 
             response = client.models.generate_content(
                 model="gemini-3.7-flash",
