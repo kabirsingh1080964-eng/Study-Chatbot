@@ -189,10 +189,52 @@ else:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # -----------------------------
-    # USER INPUT
-    # -----------------------------
-    prompt = st.chat_input("Ask your study question...")
+# -----------------------------
+# TEXT INPUT
+# -----------------------------
+typed_prompt = st.chat_input("Ask your study question...")
+
+# -----------------------------
+# VOICE INPUT
+# -----------------------------
+audio_value = st.audio_input(
+    "🎤 Or record your question"
+)
+
+voice_prompt = None
+
+if audio_value is not None:
+
+    with st.spinner("🎧 Understanding your voice..."):
+
+        try:
+            audio_file = client.files.upload(
+                file=audio_value
+            )
+
+            response = client.models.generate_content(
+                model="gemini-3.7-flash",
+                contents=[
+                    audio_file,
+                    "Convert the student's spoken question into text. "
+                    "Return ONLY the question. Do not answer it."
+                ]
+            )
+
+            voice_prompt = response.text.strip()
+
+            st.success("🎤 Voice question:")
+            st.write(voice_prompt)
+
+        except Exception as e:
+            st.error("Could not understand the voice recording.")
+            st.code(str(e))
+
+# Use either typed question OR voice question
+prompt = typed_prompt
+
+if voice_prompt:
+    prompt = voice_prompt
 
     if prompt:
 
