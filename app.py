@@ -11,7 +11,7 @@ from io import BytesIO
 # ============================================================
 
 st.set_page_config(
-    page_title="ASH Study Assistant",
+    page_title="ASH",
     page_icon="logo.png",
     layout="centered"
 )
@@ -132,7 +132,7 @@ except Exception:
     )
 
 
-st.title("ASH Study Assistant")
+st.title("ASH")
 
 st.write(
     "📚 Your AI-powered university study assistant."
