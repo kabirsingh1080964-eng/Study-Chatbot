@@ -56,6 +56,9 @@ if "pdf_name" not in st.session_state:
 if "selected_mode" not in st.session_state:
     st.session_state.selected_mode = "💬 Normal Chat"
 
+if "voice_agent" not in st.session_state:
+    st.session_state.voice_agent = False
+
 
 # ============================================================
 # HELPER FUNCTION
@@ -63,7 +66,7 @@ if "selected_mode" not in st.session_state:
 
 def pcm_to_wav(pcm_data):
     """
-    Convert Gemini PCM audio into WAV audio.
+    Convert Gemini PCM audio into WAV.
     """
 
     wav_buffer = BytesIO()
@@ -111,29 +114,36 @@ for message in st.session_state.messages:
 
 
 # ============================================================
-# BOTTOM CHAT AREA
+# BOTTOM TOOL BAR
 # ============================================================
 
-voice_col, chat_col, plus_col = st.columns(
-    [0.7, 8, 0.7],
+voice_agent_col, chat_col, plus_col = st.columns(
+    [1, 7.5, 1],
     vertical_alignment="bottom"
 )
 
 
 # ============================================================
-# MICROPHONE
+# 🎙️ VOICE AGENT BUTTON
 # ============================================================
 
-with voice_col:
+with voice_agent_col:
 
-    audio_value = st.audio_input(
-        "🎤",
-        label_visibility="collapsed"
-    )
+    if st.button(
+        "🎙️",
+        help="Open Voice Agent",
+        use_container_width=True
+    ):
+
+        st.session_state.voice_agent = (
+            not st.session_state.voice_agent
+        )
+
+        st.rerun()
 
 
 # ============================================================
-# TEXT INPUT
+# CHAT INPUT
 # ============================================================
 
 with chat_col:
@@ -209,7 +219,9 @@ with plus_col:
                     if text:
                         extracted_text += text + "\n"
 
-                st.session_state.pdf_text = extracted_text
+                st.session_state.pdf_text = (
+                    extracted_text
+                )
 
                 st.session_state.pdf_name = (
                     uploaded_file.name
@@ -257,81 +269,113 @@ with plus_col:
 
 
 # ============================================================
-# VOICE → TEXT
+# 🎙️ VOICE AGENT PANEL
 # ============================================================
 
-voice_prompt = None
+voice_agent_prompt = None
 
-if audio_value is not None:
+if st.session_state.voice_agent:
 
-    with st.spinner(
-        "🎧 Listening..."
-    ):
+    st.divider()
 
-        try:
+    st.subheader("🎙️ ASH Voice Agent")
 
-            # Get actual MIME type from browser
-            audio_mime_type = (
-                audio_value.type
-                if audio_value.type
-                else "audio/wav"
-            )
+    st.caption(
+        "Speak your question and ASH will answer you with voice."
+    )
 
-            # Upload recorded audio to Gemini
-            audio_file = client.files.upload(
-                file=audio_value,
-                config={
-                    "mime_type": audio_mime_type
-                }
-            )
+    voice_audio = st.audio_input(
+        "🎤 Press the microphone and speak",
+        key="voice_agent_recorder"
+    )
 
-            # Ask Gemini to transcribe it
-            voice_response = client.models.generate_content(
-                model="gemini-3.7-flash",
-                contents=[
-                    audio_file,
-                    (
-                        "Listen to the student's voice. "
-                        "Convert it into the exact question "
-                        "they asked. "
-                        "Return ONLY the question. "
-                        "Do not answer it."
-                    )
-                ],
-                config=types.GenerateContentConfig(
-                    max_output_tokens=200
+    if voice_audio is not None:
+
+        with st.spinner(
+            "🎧 Understanding your voice..."
+        ):
+
+            try:
+
+                # --------------------------------------------
+                # GET AUDIO MIME TYPE
+                # --------------------------------------------
+
+                audio_mime_type = (
+                    voice_audio.type
+                    if voice_audio.type
+                    else "audio/wav"
                 )
-            )
 
-            voice_prompt = (
-                voice_response.text.strip()
-            )
+                # --------------------------------------------
+                # UPLOAD AUDIO
+                # --------------------------------------------
 
-            st.info(
-                "🎤 You said: "
-                + voice_prompt
-            )
+                audio_file = client.files.upload(
+                    file=voice_audio,
+                    config={
+                        "mime_type": audio_mime_type
+                    }
+                )
 
-        except Exception as e:
+                # --------------------------------------------
+                # TRANSCRIBE
+                # --------------------------------------------
 
-            st.error(
-                "❌ Could not understand your voice."
-            )
+                transcription_response = (
+                    client.models.generate_content(
+                        model="gemini-3.7-flash",
+                        contents=[
+                            audio_file,
+                            """
+                            Listen carefully to the student's
+                            spoken question.
 
-            st.code(
-                str(e)
-            )
+                            Convert the speech into text.
+
+                            Return ONLY the student's question.
+
+                            Do not answer the question.
+                            """
+                        ],
+                        config=types.GenerateContentConfig(
+                            max_output_tokens=150
+                        )
+                    )
+                )
+
+                voice_agent_prompt = (
+                    transcription_response.text.strip()
+                )
+
+                st.info(
+                    "🎤 You said: "
+                    + voice_agent_prompt
+                )
+
+            except Exception as e:
+
+                st.error(
+                    "❌ Could not understand your voice."
+                )
+
+                st.code(
+                    str(e)
+                )
 
 
 # ============================================================
-# SELECT USER QUESTION
+# SELECT PROMPT
 # ============================================================
 
 prompt = typed_prompt
 
-if voice_prompt:
+is_voice_agent_request = False
 
-    prompt = voice_prompt
+if voice_agent_prompt:
+
+    prompt = voice_agent_prompt
+    is_voice_agent_request = True
 
 
 # ============================================================
@@ -423,7 +467,7 @@ if prompt:
 
 
     # ========================================================
-    # NORMAL AI CHAT
+    # NORMAL CHAT
     # ========================================================
 
     else:
@@ -483,7 +527,7 @@ if prompt:
                 st.session_state.pdf_text
             )
 
-            # Limit PDF size for faster response
+            # Keep PDF context small for faster response
             if len(pdf_text) > 6000:
 
                 pdf_text = pdf_text[:6000]
@@ -507,6 +551,29 @@ PDF CONTENT:
 
 
         # ====================================================
+        # VOICE AGENT INSTRUCTIONS
+        # ====================================================
+
+        voice_instructions = ""
+
+        if is_voice_agent_request:
+
+            voice_instructions = """
+The student is speaking through the Voice Agent.
+
+Answer like a natural human tutor.
+
+Keep the answer conversational,
+clear and reasonably short.
+
+Do not use unnecessary headings,
+tables or very long explanations.
+
+The answer will be converted into speech.
+"""
+
+
+        # ====================================================
         # SYSTEM PROMPT
         # ====================================================
 
@@ -515,10 +582,13 @@ You are ASH Study Assistant.
 
 {instructions[mode]}
 
+{voice_instructions}
+
 Rules:
 
 - Use simple English.
 - Be accurate.
+- Be helpful.
 - Be concise.
 - Explain difficult concepts step by step.
 - Give examples when useful.
@@ -548,7 +618,7 @@ Rules:
                             + prompt
                         ),
                         config=types.GenerateContentConfig(
-                            max_output_tokens=700
+                            max_output_tokens=500
                         )
                     )
 
@@ -558,17 +628,17 @@ Rules:
                         else "I couldn't generate an answer."
                     )
 
-                    # --------------------------------------------
+                    # ----------------------------------------
                     # SHOW TEXT ANSWER
-                    # --------------------------------------------
+                    # ----------------------------------------
 
                     st.markdown(
                         answer
                     )
 
-                    # --------------------------------------------
+                    # ----------------------------------------
                     # SAVE ANSWER
-                    # --------------------------------------------
+                    # ----------------------------------------
 
                     st.session_state.messages.append(
                         {
@@ -579,18 +649,13 @@ Rules:
 
 
                     # =================================================
-                    # VOICE REPLY
-                    #
-                    # IMPORTANT:
-                    # Only generate speech when the user used
-                    # the microphone.
-                    # Normal typed questions remain text-only.
+                    # 🎙️ VOICE AGENT RESPONSE
                     # =================================================
 
-                    if voice_prompt:
+                    if is_voice_agent_request:
 
                         with st.spinner(
-                            "🔊 Speaking..."
+                            "🔊 Preparing voice reply..."
                         ):
 
                             try:
@@ -601,10 +666,9 @@ Rules:
                                             "gemini-3.1-flash-tts-preview"
                                         ),
                                         contents=(
-                                            "Speak this answer naturally "
-                                            "and conversationally. "
-                                            "Do not add anything that "
-                                            "is not in the answer.\n\n"
+                                            "Read the following answer "
+                                            "naturally and conversationally. "
+                                            "Do not add extra information.\n\n"
                                             + answer
                                         ),
                                         config=(
@@ -632,7 +696,7 @@ Rules:
 
 
                                 # -------------------------------------
-                                # FIND AUDIO
+                                # FIND AUDIO DATA
                                 # -------------------------------------
 
                                 audio_bytes = None
@@ -669,13 +733,17 @@ Rules:
 
 
                                 # -------------------------------------
-                                # PLAY AUDIO
+                                # PLAY VOICE
                                 # -------------------------------------
 
                                 if audio_bytes:
 
                                     wav_audio = pcm_to_wav(
                                         audio_bytes
+                                    )
+
+                                    st.write(
+                                        "🔊 ASH Voice Reply"
                                     )
 
                                     st.audio(
@@ -686,9 +754,10 @@ Rules:
                                 else:
 
                                     st.warning(
-                                        "⚠️ AI answered in text, "
+                                        "⚠️ Text answer generated, "
                                         "but no voice audio was returned."
                                     )
+
 
                             except Exception as voice_error:
 
