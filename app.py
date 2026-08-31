@@ -26,10 +26,74 @@ st.markdown(
     """
     <style>
 
-    /* Main page */
+    /* BLACK BACKGROUND */
     .stApp {
-        background: #ffffff;
+        background: #000000;
+        color: #ffffff;
     }
+
+    /* Main content */
+    .block-container {
+        background: #000000;
+    }
+
+    /* Text */
+    h1, h2, h3, p, span, label {
+        color: #ffffff !important;
+    }
+
+    /* Chat messages */
+    [data-testid="stChatMessage"] {
+        background: #000000;
+        color: #ffffff;
+        border-radius: 12px;
+    }
+
+    /* Chat input */
+    [data-testid="stChatInput"] {
+        background: #1a1a1a;
+        border: 1px solid #444444;
+        border-radius: 20px;
+    }
+
+    /* Chat input text */
+    [data-testid="stChatInput"] textarea {
+        color: #ffffff !important;
+        background: #1a1a1a !important;
+    }
+
+    /* Placeholder */
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: #999999 !important;
+    }
+
+    /* Buttons */
+    button {
+        background: #1a1a1a !important;
+        color: #ffffff !important;
+        border: 1px solid #444444 !important;
+    }
+
+    /* Popover */
+    [data-testid="stPopover"] {
+        background: #111111;
+        color: #ffffff;
+    }
+
+    /* Select boxes */
+    div[data-baseweb="select"] {
+        background: #1a1a1a;
+    }
+
+    /* Footer */
+    footer {
+        visibility: hidden;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
     /* Hide Streamlit branding */
     #MainMenu {
