@@ -4,11 +4,10 @@ from google.genai import types
 from pypdf import PdfReader
 from huggingface_hub import InferenceClient
 from io import BytesIO
-import wave
 
 # ============================================================
 
-# PAGE SETTINGS
+# PAGE
 
 # ============================================================
 
@@ -20,7 +19,7 @@ layout="centered"
 
 # ============================================================
 
-# API CONNECTIONS
+# API
 
 # ============================================================
 
@@ -39,16 +38,16 @@ api_key=st.secrets["HF_TOKEN"]
 # ============================================================
 
 if "messages" not in st.session_state:
-st.session_state.messages = []
+st.session_state["messages"] = []
 
 if "pdf_text" not in st.session_state:
-st.session_state.pdf_text = ""
+st.session_state["pdf_text"] = ""
 
 if "pdf_name" not in st.session_state:
-st.session_state.pdf_name = ""
+st.session_state["pdf_name"] = ""
 
 if "selected_mode" not in st.session_state:
-st.session_state.selected_mode = "💬 Normal Chat"
+st.session_state["selected_mode"] = "💬 Normal Chat"
 
 # ============================================================
 
@@ -66,11 +65,11 @@ st.write(
 
 # ============================================================
 
-# CHAT HISTORY
+# SHOW CHAT HISTORY
 
 # ============================================================
 
-for message in st.session_state.messages:
+for message in st.session_state["messages"]:
 
 ```
 with st.chat_message(message["role"]):
@@ -95,13 +94,12 @@ study_modes = [
 
 # ============================================================
 
-# BOTTOM CHAT AREA
+# BOTTOM BAR
 
 # ============================================================
 
 voice_col, chat_col, plus_col = st.columns(
-[1, 8, 1],
-vertical_alignment="bottom"
+[1, 8, 1]
 )
 
 # ============================================================
@@ -142,32 +140,25 @@ typed_prompt = st.chat_input(
 with plus_col:
 
 ```
-with st.popover(
-    "➕",
-    use_container_width=True
-):
+with st.popover("➕"):
 
     st.subheader("Study Tools")
-
-    # ----------------------------------------------------
-    # MODE SELECTION
-    # ----------------------------------------------------
 
     selected_mode = st.radio(
         "Choose Study Mode",
         study_modes,
         index=study_modes.index(
-            st.session_state.selected_mode
+            st.session_state["selected_mode"]
         ),
         label_visibility="collapsed"
     )
 
-    st.session_state.selected_mode = selected_mode
+    st.session_state["selected_mode"] = selected_mode
 
     st.divider()
 
     # ----------------------------------------------------
-    # PDF UPLOAD
+    # PDF
     # ----------------------------------------------------
 
     st.write("📄 Upload Study Material")
@@ -182,60 +173,57 @@ with st.popover(
 
         try:
 
-            reader = PdfReader(
-                uploaded_file
-            )
+            reader = PdfReader(uploaded_file)
 
-            extracted_text = ""
+            text = ""
 
             for page in reader.pages:
 
-                text = page.extract_text()
+                page_text = page.extract_text()
 
-                if text:
-                    extracted_text += text + "\n"
+                if page_text:
 
-            st.session_state.pdf_text = extracted_text
+                    text = text + page_text + "\n"
 
-            st.session_state.pdf_name = (
-                uploaded_file.name
-            )
+            st.session_state["pdf_text"] = text
+
+            st.session_state["pdf_name"] = uploaded_file.name
 
             st.success(
-                f"✅ {uploaded_file.name} loaded"
+                "✅ PDF loaded!"
             )
 
             st.caption(
-                f"{len(reader.pages)} pages"
+                str(len(reader.pages)) + " pages"
             )
 
-        except Exception as e:
+        except Exception as error:
 
             st.error(
                 "❌ Could not read PDF."
             )
 
-            st.code(str(e))
+            st.code(str(error))
 
-    elif st.session_state.pdf_name:
-
-        st.success(
-            f"📄 {st.session_state.pdf_name} loaded"
-        )
 
     # ----------------------------------------------------
     # REMOVE PDF
     # ----------------------------------------------------
 
-    if st.session_state.pdf_name:
+    if st.session_state["pdf_name"]:
+
+        st.write(
+            "📄 " + st.session_state["pdf_name"]
+        )
 
         if st.button(
             "🗑️ Remove PDF",
             use_container_width=True
         ):
 
-            st.session_state.pdf_text = ""
-            st.session_state.pdf_name = ""
+            st.session_state["pdf_text"] = ""
+
+            st.session_state["pdf_name"] = ""
 
             st.rerun()
 ```
@@ -267,35 +255,31 @@ with st.spinner("🎧 Understanding your voice..."):
             contents=[
                 audio_file,
                 (
-                    "Listen to the student's recording. "
-                    "Convert it into text. "
+                    "Convert this audio into text. "
                     "Return ONLY the student's question. "
-                    "Do not answer the question."
+                    "Do not answer it."
                 )
             ]
         )
 
-        voice_prompt = (
-            voice_response.text.strip()
-        )
+        voice_prompt = voice_response.text.strip()
 
         st.info(
-            "🎤 You said: "
-            + voice_prompt
+            "🎤 You said: " + voice_prompt
         )
 
-    except Exception as e:
+    except Exception as error:
 
         st.error(
-            "❌ Voice could not be understood."
+            "❌ Voice recognition failed."
         )
 
-        st.code(str(e))
+        st.code(str(error))
 ```
 
 # ============================================================
 
-# CHOOSE PROMPT
+# SELECT PROMPT
 
 # ============================================================
 
@@ -309,18 +293,18 @@ prompt = voice_prompt
 
 # ============================================================
 
-# PROCESS QUESTION
+# PROCESS PROMPT
 
 # ============================================================
 
 if prompt:
 
 ```
-# ========================================================
+# --------------------------------------------------------
 # SAVE USER MESSAGE
-# ========================================================
+# --------------------------------------------------------
 
-st.session_state.messages.append(
+st.session_state["messages"].append(
     {
         "role": "user",
         "content": prompt
@@ -332,15 +316,15 @@ with st.chat_message("user"):
     st.markdown(prompt)
 
 
-# ========================================================
+# --------------------------------------------------------
 # CURRENT MODE
+# --------------------------------------------------------
+
+mode = st.session_state["selected_mode"]
+
+
 # ========================================================
-
-mode = st.session_state.selected_mode
-
-
-# ========================================================
-# IMAGE GENERATION
+# IMAGE MODE
 # ========================================================
 
 if mode == "🎨 Generate Image":
@@ -360,31 +344,31 @@ if mode == "🎨 Generate Image":
                 use_container_width=True
             )
 
-            buffer = BytesIO()
+            image_buffer = BytesIO()
 
             image.save(
-                buffer,
+                image_buffer,
                 format="PNG"
             )
 
             st.download_button(
                 "⬇️ Download Image",
-                data=buffer.getvalue(),
+                data=image_buffer.getvalue(),
                 file_name="ash_study_image.png",
                 mime="image/png"
             )
 
-        except Exception as e:
+        except Exception as error:
 
             st.error(
                 "❌ Image generation failed."
             )
 
-            st.code(str(e))
+            st.code(str(error))
 
 
 # ========================================================
-# NORMAL AI CHAT
+# TEXT AI
 # ========================================================
 
 else:
@@ -402,21 +386,20 @@ else:
 
         "📝 Make Notes":
             (
-                "Create short revision notes with headings, "
-                "bullet points, definitions and examples."
+                "Create short revision notes with headings "
+                "and bullet points."
             ),
 
         "❓ Generate MCQs":
             (
-                "Create 10 important MCQs. "
-                "Give options A, B, C and D. "
+                "Create 10 MCQs with options A, B, C and D. "
                 "Clearly show the correct answer."
             ),
 
         "🎯 Exam Questions":
             (
-                "Create important university exam questions. "
-                "Include short and long questions."
+                "Create important university exam questions "
+                "including short and long questions."
             )
     }
 
@@ -427,19 +410,16 @@ else:
 
     pdf_context = ""
 
-    if st.session_state.pdf_text:
+    if st.session_state["pdf_text"]:
 
-        pdf_text = st.session_state.pdf_text
-
-        # Limit PDF context to improve response speed
         pdf_context = (
-            "\n\nUPLOADED STUDY MATERIAL:\n"
-            + pdf_text[:8000]
+            "\n\nUPLOADED PDF:\n"
+            + st.session_state["pdf_text"][:8000]
         )
 
 
     # ====================================================
-    # SYSTEM PROMPT
+    # PROMPT
     # ====================================================
 
     system_prompt = f"""
@@ -447,13 +427,9 @@ else:
 
 You are ASH Study Assistant.
 
-Your job is to help university students learn.
-
-CURRENT MODE:
-
 {instructions[mode]}
 
-RULES:
+Rules:
 
 * Use simple English.
 * Be accurate.
@@ -462,15 +438,14 @@ RULES:
 * Keep answers focused.
 * Make exam answers easy to memorize.
 
-If uploaded study material is provided,
-use it as the main source.
+If PDF content is provided, use it as the main source.
 
 {pdf_context}
 """
 
 ```
     # ====================================================
-    # GEMINI RESPONSE
+    # AI RESPONSE
     # ====================================================
 
     with st.chat_message("assistant"):
@@ -492,22 +467,17 @@ use it as the main source.
 
                 st.markdown(answer)
 
-
-                # --------------------------------------------
-                # SAVE ANSWER
-                # --------------------------------------------
-
-                st.session_state.messages.append(
+                st.session_state["messages"].append(
                     {
                         "role": "assistant",
                         "content": answer
                     }
                 )
 
-            except Exception as e:
+            except Exception as error:
 
                 st.error(
                     "❌ Something went wrong."
                 )
 
-                st.code(str(e))
+                st.code(str(error))
