@@ -1,13 +1,14 @@
 import streamlit as st
 from google import genai
 from google.genai import types
+from pypdf import PdfReader
+from huggingface_hub import InferenceClient
 from io import BytesIO
-import base64
 import time
 
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -19,101 +20,63 @@ st.set_page_config(
 
 
 # ============================================================
-# GEMINI CLIENT
-# ============================================================
-
-@st.cache_resource
-def get_client():
-
-    return genai.Client(
-        api_key=st.secrets["GEMINI_API_KEY"]
-    )
-
-
-client = get_client()
-
-
-# ============================================================
-# MODELS
-# ============================================================
-
-# Fast model for normal conversation, studying,
-# PDFs and image understanding.
-FAST_MODEL = "gemini-2.5-flash-lite"
-
-# More capable fallback.
-SMART_MODEL = "gemini-3.7-flash"
-
-# Native image generation model.
-IMAGE_MODEL = "gemini-3.1-flash-image"
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "uploaded_files" not in st.session_state:
-    st.session_state.uploaded_files = []
-
-if "uploaded_file_names" not in st.session_state:
-    st.session_state.uploaded_file_names = []
-
-if "image_generation" not in st.session_state:
-    st.session_state.image_generation = False
-
-
-# ============================================================
-# CUSTOM CSS
+# CUSTOM CSS — CHATGPT STYLE
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* Remove Streamlit top padding */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 7rem;
-        max-width: 850px;
+    /* Main page */
+    .main {
+        padding-top: 1rem;
     }
 
-    /* Hide menu */
+    /* Hide Streamlit branding */
     #MainMenu {
         visibility: hidden;
     }
 
-    /* Hide footer */
     footer {
         visibility: hidden;
     }
 
-    /* Header */
+    header {
+        visibility: hidden;
+    }
+
+    /* Center logo */
     .ash-header {
         text-align: center;
-        margin-top: 30px;
-        margin-bottom: 35px;
+        padding-top: 10px;
+        padding-bottom: 20px;
     }
 
-    .ash-title {
-        font-size: 42px;
+    .ash-header img {
+        width: 110px;
+        border-radius: 20px;
+    }
+
+    .ash-name {
+        font-size: 34px;
         font-weight: 700;
-        margin-bottom: 5px;
+        margin-top: 5px;
     }
 
-    .ash-subtitle {
-        font-size: 16px;
-        opacity: 0.65;
+    .ash-tagline {
+        color: #777;
+        font-size: 15px;
+        margin-top: -5px;
     }
 
-    /* Upload information */
-    .upload-box {
-        padding: 12px;
-        border-radius: 12px;
-        margin-bottom: 10px;
-        background: rgba(128,128,128,0.08);
+    /* Chat messages */
+    .stChatMessage {
+        border-radius: 14px;
+    }
+
+    /* Bottom area */
+    .stChatInput {
+        border-radius: 20px;
     }
 
     /* Buttons */
@@ -128,21 +91,87 @@ st.markdown(
 
 
 # ============================================================
-# HEADER
+# API CLIENTS
+# ============================================================
+
+@st.cache_resource
+def get_gemini_client():
+
+    return genai.Client(
+        api_key=st.secrets["GEMINI_API_KEY"]
+    )
+
+
+@st.cache_resource
+def get_huggingface_client():
+
+    return InferenceClient(
+        api_key=st.secrets["HF_TOKEN"]
+    )
+
+
+client = get_gemini_client()
+image_client = get_huggingface_client()
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+
+if "pdf_text" not in st.session_state:
+    st.session_state.pdf_text = ""
+
+
+if "pdf_name" not in st.session_state:
+    st.session_state.pdf_name = ""
+
+
+if "uploaded_image" not in st.session_state:
+    st.session_state.uploaded_image = None
+
+
+if "selected_mode" not in st.session_state:
+    st.session_state.selected_mode = "💬 Normal Chat"
+
+
+# ============================================================
+# ASH HEADER
 # ============================================================
 
 st.markdown(
     """
     <div class="ash-header">
+    """,
+    unsafe_allow_html=True
+)
 
-        <div class="ash-title">
-            ASH
-        </div>
+try:
 
-        <div class="ash-subtitle">
-            Your all-in-one AI assistant
-        </div>
+    st.image(
+        "logo.png",
+        width=110
+    )
 
+except Exception:
+
+    st.markdown(
+        "<div style='font-size:70px;'>🤖</div>",
+        unsafe_allow_html=True
+    )
+
+
+st.markdown(
+    """
+    <div class="ash-name">
+        ASH
+    </div>
+
+    <div class="ash-tagline">
+        Your all-in-one AI assistant
     </div>
     """,
     unsafe_allow_html=True
@@ -150,7 +179,7 @@ st.markdown(
 
 
 # ============================================================
-# DISPLAY CHAT HISTORY
+# CHAT HISTORY
 # ============================================================
 
 for message in st.session_state.messages:
@@ -162,7 +191,7 @@ for message in st.session_state.messages:
         if message.get("type") == "image":
 
             st.image(
-                message["data"],
+                message["content"],
                 use_container_width=True
             )
 
@@ -174,374 +203,505 @@ for message in st.session_state.messages:
 
 
 # ============================================================
-# PLUS MENU
+# PDF CONTEXT
 # ============================================================
 
-# Put the uploader ABOVE the chat input so it doesn't
-# interfere with Streamlit's chat_input positioning.
+def get_pdf_context():
 
-with st.popover(
-    "＋",
-    use_container_width=False
+    if not st.session_state.pdf_text:
+
+        return ""
+
+    pdf_text = st.session_state.pdf_text
+
+    # Keep prompt small for faster responses
+    max_chars = 7000
+
+    if len(pdf_text) > max_chars:
+
+        pdf_text = pdf_text[:max_chars]
+
+    return f"""
+
+The user uploaded a study PDF.
+
+Use the PDF information when it is relevant.
+
+If the requested information is not present
+in the PDF, use your general knowledge.
+
+PDF CONTENT:
+
+-------------------------
+{pdf_text}
+-------------------------
+"""
+
+
+# ============================================================
+# AI RESPONSE FUNCTION
+# ============================================================
+
+def get_ai_response(
+    prompt,
+    image=None
 ):
 
-    st.markdown(
-        "### Add to ASH"
+    mode = st.session_state.selected_mode
+
+
+    # --------------------------------------------------------
+    # MODE INSTRUCTIONS
+    # --------------------------------------------------------
+
+    mode_instructions = {
+
+        "💬 Normal Chat":
+            """
+            Answer the user's question clearly.
+            Give useful and accurate information.
+            """,
+
+        "📚 Study Assistant":
+            """
+            Act as a university study assistant.
+
+            Explain concepts in simple language.
+            Use examples.
+            Break difficult topics into steps.
+            Make information easy to remember.
+            """,
+
+        "📝 Make Notes":
+            """
+            Convert the requested topic into
+            short, organized study notes.
+
+            Use:
+            - Headings
+            - Bullet points
+            - Definitions
+            - Examples
+            """,
+
+        "❓ Generate MCQs":
+            """
+            Generate useful multiple-choice questions.
+
+            Each question should contain:
+            A
+            B
+            C
+            D
+
+            Clearly identify the correct answer.
+            """,
+
+        "🎯 Exam Preparation":
+            """
+            Help the student prepare for university exams.
+
+            Focus on:
+            - Important concepts
+            - Short questions
+            - Long questions
+            - Examples
+            - Exam tips
+            """
+    }
+
+
+    instructions = mode_instructions.get(
+        mode,
+        mode_instructions["💬 Normal Chat"]
     )
 
-    st.caption(
-        "Upload an image or PDF."
-    )
 
-    uploaded_file = st.file_uploader(
-        "Choose a file",
-        type=[
-            "png",
-            "jpg",
-            "jpeg",
-            "webp",
-            "pdf"
-        ],
-        label_visibility="collapsed"
-    )
+    # --------------------------------------------------------
+    # SYSTEM PROMPT
+    # --------------------------------------------------------
+
+    system_prompt = f"""
+You are ASH, an advanced all-in-one AI assistant.
+
+{instructions}
+
+General rules:
+
+- Answer the user's actual question.
+- Use simple and clear language.
+- Be accurate.
+- Do not unnecessarily repeat information.
+- Use headings and bullet points when useful.
+- Give examples when helpful.
+- If the question requires calculations, show the steps.
+- If the user asks for programming help, provide correct code.
+- If the user asks about studies, teach instead of just giving
+  a one-line answer.
+- Keep responses reasonably concise.
+
+{get_pdf_context()}
+"""
 
 
     # --------------------------------------------------------
-    # FILE HANDLING
+    # CONTENT
     # --------------------------------------------------------
 
-    if uploaded_file is not None:
-
-        file_name = uploaded_file.name
-
-        file_bytes = uploaded_file.getvalue()
-
-        # Prevent duplicate upload
-        if file_name not in st.session_state.uploaded_file_names:
-
-            mime_type = uploaded_file.type
-
-            st.session_state.uploaded_files.append(
-                {
-                    "name": file_name,
-                    "bytes": file_bytes,
-                    "mime_type": mime_type
-                }
-            )
-
-            st.session_state.uploaded_file_names.append(
-                file_name
-            )
-
-            st.success(
-                f"✅ {file_name} attached"
-            )
+    contents = [
+        system_prompt
+    ]
 
 
     # --------------------------------------------------------
-    # SHOW CURRENT FILES
+    # IMAGE UNDERSTANDING
     # --------------------------------------------------------
 
-    if st.session_state.uploaded_files:
+    if image is not None:
 
-        st.markdown(
-            "#### Attached files"
+        contents.append(
+            image
         )
 
-        for index, file_info in enumerate(
-            st.session_state.uploaded_files
-        ):
 
-            col1, col2 = st.columns(
-                [5, 1]
+        contents.append(
+            """
+            Analyze the uploaded image carefully
+            and answer the user's question about it.
+            """
+        )
+
+
+    contents.append(
+        f"""
+
+USER QUESTION:
+
+{prompt}
+"""
+    )
+
+
+    # --------------------------------------------------------
+    # GEMINI REQUEST
+    # --------------------------------------------------------
+
+    # A few retries help when Gemini temporarily
+    # returns 503 UNAVAILABLE.
+
+    for attempt in range(3):
+
+        try:
+
+            response = client.models.generate_content(
+
+                model="gemini-3.7-flash",
+
+                contents=contents,
+
+                config=types.GenerateContentConfig(
+
+                    max_output_tokens=700,
+
+                    temperature=0.5
+                )
             )
 
-            with col1:
 
-                st.caption(
-                    "📎 "
-                    + file_info["name"]
-                )
+            if response.text:
 
-            with col2:
+                return response.text.strip()
 
-                if st.button(
-                    "×",
-                    key=f"remove_file_{index}"
-                ):
 
-                    removed_name = (
-                        st.session_state
-                        .uploaded_files[index]
-                        ["name"]
+            return (
+                "Sorry, I couldn't generate "
+                "an answer."
+            )
+
+
+        except Exception as error:
+
+            error_text = str(error)
+
+
+            # Retry temporary 503 errors
+
+            if (
+                "503" in error_text
+                or "UNAVAILABLE" in error_text
+                or "high demand" in error_text.lower()
+            ):
+
+                if attempt < 2:
+
+                    time.sleep(
+                        1.5 * (attempt + 1)
                     )
 
-                    st.session_state.uploaded_files.pop(
-                        index
-                    )
+                    continue
 
-                    st.session_state.uploaded_file_names.remove(
-                        removed_name
-                    )
 
-                    st.rerun()
+            raise error
+
+
+# ============================================================
+# IMAGE GENERATION FUNCTION
+# ============================================================
+
+def generate_image(prompt):
+
+    image = image_client.text_to_image(
+
+        prompt=prompt,
+
+        model=(
+            "black-forest-labs/"
+            "FLUX.1-schnell"
+        )
+    )
+
+    return image
+
+
+# ============================================================
+# CHAT INPUT + PLUS BUTTON
+# ============================================================
+
+chat_col, plus_col = st.columns(
+    [9, 1],
+    vertical_alignment="bottom"
+)
 
 
 # ============================================================
 # CHAT INPUT
 # ============================================================
 
-prompt = st.chat_input(
-    "Ask anything..."
-)
+with chat_col:
 
-
-# ============================================================
-# IMAGE GENERATION DETECTION
-# ============================================================
-
-def is_image_request(text):
-
-    text = text.lower()
-
-    image_words = [
-
-        "generate image",
-        "create image",
-        "make image",
-        "generate a picture",
-        "create a picture",
-        "make a picture",
-        "draw",
-        "illustration",
-        "illustrate",
-        "design an image",
-        "generate photo",
-        "create photo",
-        "make photo",
-        "ai image",
-        "create artwork",
-        "generate artwork"
-
-    ]
-
-    return any(
-        word in text
-        for word in image_words
+    prompt = st.chat_input(
+        "Message ASH..."
     )
 
 
 # ============================================================
-# IMAGE GENERATION
+# PLUS BUTTON
 # ============================================================
 
-def generate_image(prompt, files):
+with plus_col:
 
-    contents = []
+    with st.popover(
+        "➕",
+        use_container_width=True
+    ):
 
-    # --------------------------------------------------------
-    # TEXT PROMPT
-    # --------------------------------------------------------
-
-    contents.append(
-        prompt
-    )
+        st.markdown(
+            "### ASH Tools"
+        )
 
 
-    # --------------------------------------------------------
-    # OPTIONAL IMAGE REFERENCES
-    # --------------------------------------------------------
+        # ====================================================
+        # STUDY MODES
+        # ====================================================
 
-    for file_info in files:
+        st.markdown(
+            "#### 📚 Study Mode"
+        )
 
-        mime_type = file_info["mime_type"]
 
-        if mime_type.startswith("image/"):
+        modes = [
 
-            contents.append(
-                types.Part.from_bytes(
-                    data=file_info["bytes"],
-                    mime_type=mime_type
-                )
+            "💬 Normal Chat",
+
+            "📚 Study Assistant",
+
+            "📝 Make Notes",
+
+            "❓ Generate MCQs",
+
+            "🎯 Exam Preparation",
+
+            "🎨 Generate Image"
+        ]
+
+
+        selected_mode = st.selectbox(
+
+            "Choose mode",
+
+            modes,
+
+            index=modes.index(
+                st.session_state.selected_mode
             )
+        )
 
 
-    # --------------------------------------------------------
-    # IMAGE GENERATION
-    # --------------------------------------------------------
+        st.session_state.selected_mode = (
+            selected_mode
+        )
 
-    response = client.models.generate_content(
 
-        model=IMAGE_MODEL,
+        st.divider()
 
-        contents=contents,
 
-        config=types.GenerateContentConfig(
+        # ====================================================
+        # IMAGE UPLOAD
+        # ====================================================
 
-            response_modalities=[
-                "IMAGE"
+        st.markdown(
+            "#### 🖼️ Upload Image"
+        )
+
+
+        uploaded_image = st.file_uploader(
+
+            "Upload an image",
+
+            type=[
+                "png",
+                "jpg",
+                "jpeg",
+                "webp"
             ],
 
-            response_format={
-                "image": {
-                    "aspect_ratio": "16:9",
-                    "image_size": "2K"
-                }
-            }
+            label_visibility="collapsed"
         )
-    )
 
 
-    # --------------------------------------------------------
-    # FIND GENERATED IMAGE
-    # --------------------------------------------------------
+        if uploaded_image is not None:
 
-    if response.candidates:
+            try:
 
-        for candidate in response.candidates:
+                image_bytes = (
+                    uploaded_image.getvalue()
+                )
 
-            if not candidate.content:
-                continue
+                st.session_state.uploaded_image = (
+                    image_bytes
+                )
 
-            for part in candidate.content.parts:
+                st.image(
+                    image_bytes,
+                    caption="Image attached",
+                    use_container_width=True
+                )
 
-                if (
-                    hasattr(
-                        part,
-                        "inline_data"
-                    )
-                    and part.inline_data
-                ):
+            except Exception as error:
 
-                    return (
-                        part.inline_data.data
-                    )
-
-
-    return None
+                st.error(
+                    "Could not load image."
+                )
 
 
-# ============================================================
-# NORMAL AI RESPONSE
-# ============================================================
-
-def generate_answer(prompt, files):
-
-    # --------------------------------------------------------
-    # SYSTEM INSTRUCTIONS
-    # --------------------------------------------------------
-
-    system_instruction = """
-You are ASH, an advanced all-in-one AI assistant.
-
-Your job is to help the user with ANY reasonable request.
-
-You can help with:
-
-- General knowledge
-- Current information when available
-- University studies
-- Programming
-- Mathematics
-- Software engineering
-- Writing
-- Summaries
-- Explanations
-- Research
-- PDFs
-- Images
-- Problem solving
-- Brainstorming
-
-IMPORTANT:
-
-Answer directly.
-
-Do not unnecessarily say:
-"As an AI..."
-
-Use simple language unless the user asks for technical detail.
-
-For study questions:
-- Explain step by step.
-- Give examples.
-- Make difficult concepts easy.
-- Make answers useful for exams.
-
-For uploaded PDFs:
-- Carefully use the uploaded document.
-- If the answer is not available in the document,
-  clearly tell the user.
-
-For uploaded images:
-- Analyze the image carefully.
-- Answer the user's question about the image.
-
-Do not invent information from an uploaded file.
-
-Keep normal answers reasonably concise.
-"""
+        st.divider()
 
 
-    # --------------------------------------------------------
-    # BUILD CONTENTS
-    # --------------------------------------------------------
+        # ====================================================
+        # PDF UPLOAD
+        # ====================================================
 
-    contents = []
-
-
-    contents.append(
-        system_instruction
-    )
+        st.markdown(
+            "#### 📄 Upload PDF"
+        )
 
 
-    # --------------------------------------------------------
-    # ADD FILES
-    # --------------------------------------------------------
+        uploaded_pdf = st.file_uploader(
 
-    for file_info in files:
+            "Upload study material",
 
-        contents.append(
+            type=["pdf"],
 
-            types.Part.from_bytes(
+            label_visibility="collapsed"
+        )
 
-                data=file_info["bytes"],
 
-                mime_type=file_info["mime_type"]
+        if uploaded_pdf is not None:
+
+            try:
+
+                reader = PdfReader(
+                    uploaded_pdf
+                )
+
+
+                extracted_text = []
+
+
+                for page in reader.pages:
+
+                    text = page.extract_text()
+
+                    if text:
+
+                        extracted_text.append(
+                            text
+                        )
+
+
+                final_text = "\n".join(
+                    extracted_text
+                )
+
+
+                st.session_state.pdf_text = (
+                    final_text
+                )
+
+
+                st.session_state.pdf_name = (
+                    uploaded_pdf.name
+                )
+
+
+                st.success(
+                    f"✅ {uploaded_pdf.name}"
+                )
+
+
+                st.caption(
+                    f"{len(reader.pages)} pages loaded"
+                )
+
+
+            except Exception as error:
+
+                st.error(
+                    "Could not read PDF."
+                )
+
+
+        elif st.session_state.pdf_name:
+
+            st.success(
+                f"📄 {st.session_state.pdf_name}"
             )
-        )
 
 
-    # --------------------------------------------------------
-    # USER QUESTION
-    # --------------------------------------------------------
+        # ====================================================
+        # REMOVE FILES
+        # ====================================================
 
-    contents.append(
-        "\n\nUSER QUESTION:\n"
-        + prompt
-    )
+        st.divider()
 
 
-    # --------------------------------------------------------
-    # FAST STREAMING RESPONSE
-    # --------------------------------------------------------
+        if (
+            st.session_state.pdf_name
+            or st.session_state.uploaded_image
+        ):
 
-    response_stream = client.models.generate_content_stream(
+            if st.button(
+                "🗑️ Remove attachments",
+                use_container_width=True
+            ):
 
-        model=FAST_MODEL,
+                st.session_state.pdf_text = ""
 
-        contents=contents,
+                st.session_state.pdf_name = ""
 
-        config=types.GenerateContentConfig(
+                st.session_state.uploaded_image = None
 
-            max_output_tokens=1000,
-
-            temperature=0.3
-        )
-    )
-
-
-    return response_stream
+                st.rerun()
 
 
 # ============================================================
@@ -550,12 +710,11 @@ Keep normal answers reasonably concise.
 
 if prompt:
 
-    # --------------------------------------------------------
-    # SAVE USER MESSAGE
-    # --------------------------------------------------------
+    # ========================================================
+    # USER MESSAGE
+    # ========================================================
 
     st.session_state.messages.append(
-
         {
             "role": "user",
             "content": prompt
@@ -563,170 +722,191 @@ if prompt:
     )
 
 
-    # --------------------------------------------------------
-    # DISPLAY USER
-    # --------------------------------------------------------
+    with st.chat_message("user"):
 
-    with st.chat_message(
-        "user"
-    ):
+        st.markdown(prompt)
 
-        st.markdown(
-            prompt
-        )
+
+        # Show uploaded image
+
+        if st.session_state.uploaded_image:
+
+            st.image(
+                st.session_state.uploaded_image,
+                width=300
+            )
+
+
+    # ========================================================
+    # CURRENT MODE
+    # ========================================================
+
+    mode = st.session_state.selected_mode
 
 
     # ========================================================
     # IMAGE GENERATION
     # ========================================================
 
-    if is_image_request(prompt):
+    if mode == "🎨 Generate Image":
 
-        with st.chat_message(
-            "assistant"
-        ):
+        with st.chat_message("assistant"):
 
             with st.spinner(
-                "Creating your image..."
+                "🎨 Creating your image..."
             ):
 
                 try:
 
-                    image_bytes = generate_image(
-
-                        prompt,
-
-                        st.session_state.uploaded_files
+                    generated_image = (
+                        generate_image(prompt)
                     )
 
 
-                    if image_bytes:
-
-                        st.image(
-
-                            image_bytes,
-
-                            caption="Generated by ASH",
-
-                            use_container_width=True
-                        )
+                    st.image(
+                        generated_image,
+                        caption="Generated by ASH",
+                        use_container_width=True
+                    )
 
 
-                        st.download_button(
+                    # Save image in chat
 
-                            label="⬇️ Download Image",
-
-                            data=image_bytes,
-
-                            file_name="ash_generated_image.png",
-
-                            mime="image/png"
-                        )
+                    image_buffer = BytesIO()
 
 
-                        st.session_state.messages.append(
-
-                            {
-                                "role": "assistant",
-                                "type": "image",
-                                "data": image_bytes
-                            }
-                        )
+                    generated_image.save(
+                        image_buffer,
+                        format="PNG"
+                    )
 
 
-                    else:
-
-                        st.error(
-                            "ASH couldn't generate the image."
-                        )
+                    image_data = (
+                        image_buffer.getvalue()
+                    )
 
 
-                except Exception as e:
+                    st.download_button(
+
+                        "⬇️ Download Image",
+
+                        data=image_data,
+
+                        file_name=(
+                            "ash_generated_image.png"
+                        ),
+
+                        mime="image/png"
+                    )
+
+
+                except Exception as error:
 
                     st.error(
-                        "Image generation failed."
+                        "❌ Image generation failed."
                     )
 
+
                     st.code(
-                        str(e)
+                        str(error)
                     )
 
 
     # ========================================================
-    # NORMAL AI ANSWER
+    # NORMAL AI RESPONSE
     # ========================================================
 
     else:
 
-        with st.chat_message(
-            "assistant"
-        ):
+        with st.chat_message("assistant"):
 
-            response_placeholder = st.empty()
+            with st.spinner(
+                "🤖 ASH is thinking..."
+            ):
 
-            full_answer = ""
+                try:
 
-            try:
+                    # -----------------------------------------
+                    # IMAGE
+                    # -----------------------------------------
 
-                stream = generate_answer(
-
-                    prompt,
-
-                    st.session_state.uploaded_files
-                )
+                    image_input = None
 
 
-                # ------------------------------------------------
-                # STREAM RESPONSE
-                # ------------------------------------------------
+                    if (
+                        st.session_state.uploaded_image
+                    ):
 
-                for chunk in stream:
-
-                    if chunk.text:
-
-                        full_answer += chunk.text
-
-                        response_placeholder.markdown(
-                            full_answer
-                            + "▌"
+                        image_input = (
+                            types.Part.from_bytes(
+                                data=(
+                                    st.session_state
+                                    .uploaded_image
+                                ),
+                                mime_type=(
+                                    "image/png"
+                                )
+                            )
                         )
 
 
-                response_placeholder.markdown(
-                    full_answer
-                )
+                    # -----------------------------------------
+                    # GET RESPONSE
+                    # -----------------------------------------
+
+                    answer = get_ai_response(
+
+                        prompt,
+
+                        image=image_input
+                    )
 
 
-                # ------------------------------------------------
-                # SAVE RESPONSE
-                # ------------------------------------------------
+                    # -----------------------------------------
+                    # DISPLAY
+                    # -----------------------------------------
 
-                st.session_state.messages.append(
-
-                    {
-                        "role": "assistant",
-                        "content": full_answer
-                    }
-                )
+                    st.markdown(
+                        answer
+                    )
 
 
-            except Exception as e:
+                    # -----------------------------------------
+                    # SAVE
+                    # -----------------------------------------
 
-                st.error(
-                    "ASH couldn't process your request."
-                )
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": answer
+                        }
+                    )
 
-                st.code(
-                    str(e)
-                )
+
+                except Exception as error:
+
+                    error_text = str(error)
 
 
-    # ========================================================
-    # CLEAR ATTACHMENTS AFTER MESSAGE
-    # ========================================================
+                    if (
+                        "503" in error_text
+                        or "UNAVAILABLE"
+                        in error_text
+                    ):
 
-    st.session_state.uploaded_files = []
+                        st.error(
+                            "⚠️ Gemini is temporarily "
+                            "busy. Please try again "
+                            "in a few seconds."
+                        )
 
-    st.session_state.uploaded_file_names = []
+                    else:
 
-    st.rerun()
+                        st.error(
+                            "❌ Something went wrong."
+                        )
+
+
+                    st.code(
+                        error_text
+                    )
