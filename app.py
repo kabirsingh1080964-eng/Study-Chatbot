@@ -19,74 +19,125 @@ st.set_page_config(
 
 
 # ============================================================
-# CSS - CHATGPT STYLE
+# DARK BLACK THEME
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* BLACK BACKGROUND */
+    /* Entire application background */
     .stApp {
-        background: #000000;
+        background-color: #000000 !important;
+        color: #ffffff !important;
+    }
+
+    /* Main content area */
+    .main {
+        background-color: #000000 !important;
+    }
+
+    .block-container {
+        background-color: #000000 !important;
+        max-width: 900px;
+        padding-top: 20px;
+        padding-bottom: 120px;
+    }
+
+    /* Header text */
+    h1, h2, h3, h4, h5, h6 {
+        color: #ffffff !important;
+    }
+
+    /* Normal text */
+    p, label, span {
         color: #ffffff;
     }
 
-    /* Main content */
-    .block-container {
-        background: #000000;
-    }
-
-    /* Text */
-    h1, h2, h3, p, span, label {
-        color: #ffffff !important;
+    /* ASH subtitle */
+    .ash-subtitle {
+        color: #aaaaaa !important;
+        text-align: center;
+        font-size: 14px;
+        margin-bottom: 35px;
     }
 
     /* Chat messages */
     [data-testid="stChatMessage"] {
-        background: #000000;
-        color: #ffffff;
+        background-color: #000000 !important;
+        color: #ffffff !important;
         border-radius: 12px;
     }
 
-    /* Chat input */
+    /* Chat input container */
     [data-testid="stChatInput"] {
-        background: #1a1a1a;
-        border: 1px solid #444444;
-        border-radius: 20px;
+        background-color: #1f1f1f !important;
+        border: 1px solid #444444 !important;
+        border-radius: 20px !important;
     }
 
     /* Chat input text */
     [data-testid="stChatInput"] textarea {
+        background-color: #1f1f1f !important;
         color: #ffffff !important;
-        background: #1a1a1a !important;
     }
 
-    /* Placeholder */
+    /* Chat input placeholder */
     [data-testid="stChatInput"] textarea::placeholder {
         color: #999999 !important;
     }
 
     /* Buttons */
     button {
-        background: #1a1a1a !important;
+        background-color: #1f1f1f !important;
         color: #ffffff !important;
         border: 1px solid #444444 !important;
+        border-radius: 10px !important;
+    }
+
+    button:hover {
+        background-color: #333333 !important;
     }
 
     /* Popover */
     [data-testid="stPopover"] {
-        background: #111111;
-        color: #ffffff;
+        background-color: #111111 !important;
+        color: #ffffff !important;
     }
 
-    /* Select boxes */
+    /* Popover content */
+    [data-testid="stPopover"] * {
+        color: #ffffff !important;
+    }
+
+    /* Select box */
     div[data-baseweb="select"] {
-        background: #1a1a1a;
+        background-color: #1f1f1f !important;
     }
 
-    /* Footer */
+    /* File uploader */
+    [data-testid="stFileUploader"] {
+        background-color: #111111 !important;
+        border-radius: 10px;
+    }
+
+    /* Captions */
+    .stCaption {
+        color: #999999 !important;
+    }
+
+    /* Hide Streamlit menu */
+    #MainMenu {
+        visibility: hidden;
+    }
+
+    /* Hide footer */
     footer {
+        visibility: hidden;
+    }
+
+    /* Hide top header */
+    header {
         visibility: hidden;
     }
 
