@@ -2,7 +2,7 @@ import streamlit as st
 from huggingface_hub import InferenceClient
 from pypdf import PdfReader
 from io import BytesIO
-import time
+import base64
 
 
 # ============================================================
@@ -25,8 +25,6 @@ st.markdown(
     """
     <style>
 
-    /* Main background */
-
     .stApp {
         background: #000000 !important;
         color: #ffffff !important;
@@ -43,27 +41,18 @@ st.markdown(
         background: #000000 !important;
     }
 
-
-    /* Text */
-
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
     }
 
-    p, label, span {
-        color: #ffffff;
+    p, label {
+        color: #ffffff !important;
     }
-
-
-    /* Chat messages */
 
     [data-testid="stChatMessage"] {
         background: transparent !important;
         color: #ffffff !important;
     }
-
-
-    /* Chat input */
 
     [data-testid="stChatInput"] {
         background: #1f1f1f !important;
@@ -80,9 +69,6 @@ st.markdown(
         color: #999999 !important;
     }
 
-
-    /* Buttons */
-
     button {
         background: #1f1f1f !important;
         color: #ffffff !important;
@@ -94,23 +80,14 @@ st.markdown(
         background: #333333 !important;
     }
 
-
-    /* Popover */
-
     [data-testid="stPopover"] {
         background: #111111 !important;
     }
-
-
-    /* File uploader */
 
     [data-testid="stFileUploader"] {
         background: #111111 !important;
         border-radius: 12px !important;
     }
-
-
-    /* Hide Streamlit branding */
 
     #MainMenu {
         visibility: hidden;
@@ -124,17 +101,11 @@ st.markdown(
         visibility: hidden;
     }
 
-
-    /* Logo */
-
     .ash-logo {
         display: flex;
         justify-content: center;
         margin-bottom: 5px;
     }
-
-
-    /* Subtitle */
 
     .ash-subtitle {
         text-align: center;
@@ -142,9 +113,6 @@ st.markdown(
         margin-bottom: 30px;
         font-size: 15px;
     }
-
-
-    /* Attachment badge */
 
     .attachment-badge {
         background: #1f1f1f;
@@ -154,6 +122,11 @@ st.markdown(
         margin-bottom: 10px;
         color: #dddddd !important;
         font-size: 13px;
+    }
+
+    /* Make the plus button compact */
+    .plus-button-container {
+        margin-top: 4px;
     }
 
     </style>
@@ -192,13 +165,10 @@ client = get_client()
 # MODELS
 # ============================================================
 
-# Main text model
 TEXT_MODEL = "Qwen/Qwen3-32B"
 
-# Vision model for uploaded images
 VISION_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 
-# Image generation
 IMAGE_MODEL = "black-forest-labs/FLUX.1-schnell"
 
 
@@ -209,22 +179,20 @@ IMAGE_MODEL = "black-forest-labs/FLUX.1-schnell"
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-
 if "pdf_text" not in st.session_state:
     st.session_state.pdf_text = ""
-
 
 if "pdf_name" not in st.session_state:
     st.session_state.pdf_name = ""
 
-
 if "image_bytes" not in st.session_state:
     st.session_state.image_bytes = None
-
 
 if "image_name" not in st.session_state:
     st.session_state.image_name = ""
 
+if "image_type" not in st.session_state:
+    st.session_state.image_type = "image/png"
 
 if "mode" not in st.session_state:
     st.session_state.mode = "Normal Chat"
@@ -285,7 +253,8 @@ for message in st.session_state.messages:
 
     with st.chat_message(role):
 
-        st.markdown(content)
+        if content:
+            st.markdown(content)
 
         if message.get("image") is not None:
 
@@ -293,196 +262,6 @@ for message in st.session_state.messages:
                 message["image"],
                 use_container_width=True
             )
-
-
-# ============================================================
-# PLUS MENU
-# ============================================================
-
-with st.popover(
-    "➕",
-    use_container_width=False
-):
-
-    st.markdown(
-        "### ASH Tools"
-    )
-
-
-    # ========================================================
-    # STUDY MODE
-    # ========================================================
-
-    modes = [
-        "Normal Chat",
-        "Explain Topic",
-        "Make Notes",
-        "Generate MCQs",
-        "Exam Questions"
-    ]
-
-
-    selected_mode = st.selectbox(
-        "Study Mode",
-        modes,
-        index=modes.index(
-            st.session_state.mode
-        )
-    )
-
-
-    st.session_state.mode = selected_mode
-
-
-    st.divider()
-
-
-    # ========================================================
-    # PDF
-    # ========================================================
-
-    st.markdown(
-        "### 📄 Upload PDF"
-    )
-
-
-    pdf_file = st.file_uploader(
-        "Choose a PDF",
-        type=["pdf"],
-        label_visibility="collapsed"
-    )
-
-
-    if pdf_file is not None:
-
-        try:
-
-            reader = PdfReader(
-                pdf_file
-            )
-
-            extracted_text = []
-
-
-            for page in reader.pages:
-
-                page_text = page.extract_text()
-
-                if page_text:
-
-                    extracted_text.append(
-                        page_text
-                    )
-
-
-            st.session_state.pdf_text = (
-                "\n".join(extracted_text)
-            )
-
-            st.session_state.pdf_name = (
-                pdf_file.name
-            )
-
-
-            st.success(
-                f"✅ {pdf_file.name} loaded"
-            )
-
-
-            st.caption(
-                f"{len(reader.pages)} pages"
-            )
-
-
-        except Exception as error:
-
-            st.error(
-                "Could not read PDF."
-            )
-
-            st.code(
-                str(error)
-            )
-
-
-    if st.session_state.pdf_name:
-
-        st.caption(
-            "📄 "
-            + st.session_state.pdf_name
-        )
-
-
-        if st.button(
-            "🗑️ Remove PDF",
-            use_container_width=True
-        ):
-
-            st.session_state.pdf_text = ""
-
-            st.session_state.pdf_name = ""
-
-            st.rerun()
-
-
-    st.divider()
-
-
-    # ========================================================
-    # IMAGE UPLOAD
-    # ========================================================
-
-    st.markdown(
-        "### 🖼️ Upload Image"
-    )
-
-
-    image_file = st.file_uploader(
-        "Choose an image",
-        type=[
-            "png",
-            "jpg",
-            "jpeg",
-            "webp"
-        ],
-        label_visibility="collapsed"
-    )
-
-
-    if image_file is not None:
-
-        st.session_state.image_bytes = (
-            image_file.getvalue()
-        )
-
-        st.session_state.image_name = (
-            image_file.name
-        )
-
-
-        st.image(
-            st.session_state.image_bytes,
-            use_container_width=True
-        )
-
-
-        st.success(
-            "✅ Image attached"
-        )
-
-
-    if st.session_state.image_bytes:
-
-        if st.button(
-            "🗑️ Remove Image",
-            use_container_width=True
-        ):
-
-            st.session_state.image_bytes = None
-
-            st.session_state.image_name = ""
-
-            st.rerun()
 
 
 # ============================================================
@@ -514,6 +293,234 @@ if st.session_state.image_name:
 
 
 # ============================================================
+# BOTTOM CHAT BAR
+#
+# ➕ | Message ASH...
+# ============================================================
+
+plus_col, chat_col = st.columns(
+    [0.75, 9.25],
+    vertical_alignment="bottom"
+)
+
+
+# ============================================================
+# PLUS BUTTON
+# ============================================================
+
+with plus_col:
+
+    with st.popover(
+        "➕",
+        use_container_width=True
+    ):
+
+        st.markdown(
+            "### ASH Tools"
+        )
+
+
+        # ====================================================
+        # STUDY MODE
+        # ====================================================
+
+        modes = [
+            "Normal Chat",
+            "Explain Topic",
+            "Make Notes",
+            "Generate MCQs",
+            "Exam Questions"
+        ]
+
+
+        selected_mode = st.selectbox(
+            "Study Mode",
+            modes,
+            index=modes.index(
+                st.session_state.mode
+            )
+        )
+
+
+        st.session_state.mode = selected_mode
+
+
+        st.divider()
+
+
+        # ====================================================
+        # PDF UPLOAD
+        # ====================================================
+
+        st.markdown(
+            "### 📄 Upload PDF"
+        )
+
+
+        pdf_file = st.file_uploader(
+            "Choose a PDF",
+            type=["pdf"],
+            label_visibility="collapsed",
+            key="ash_pdf_upload"
+        )
+
+
+        if pdf_file is not None:
+
+            try:
+
+                reader = PdfReader(
+                    pdf_file
+                )
+
+                extracted_text = []
+
+
+                for page in reader.pages:
+
+                    page_text = page.extract_text()
+
+                    if page_text:
+
+                        extracted_text.append(
+                            page_text
+                        )
+
+
+                st.session_state.pdf_text = (
+                    "\n".join(extracted_text)
+                )
+
+                st.session_state.pdf_name = (
+                    pdf_file.name
+                )
+
+
+                st.success(
+                    f"✅ {pdf_file.name} loaded"
+                )
+
+
+                st.caption(
+                    f"{len(reader.pages)} pages"
+                )
+
+
+            except Exception as error:
+
+                st.error(
+                    "❌ Could not read PDF."
+                )
+
+                st.code(
+                    str(error)
+                )
+
+
+        if st.session_state.pdf_name:
+
+            st.caption(
+                "📄 "
+                + st.session_state.pdf_name
+            )
+
+
+            if st.button(
+                "🗑️ Remove PDF",
+                use_container_width=True,
+                key="remove_pdf"
+            ):
+
+                st.session_state.pdf_text = ""
+
+                st.session_state.pdf_name = ""
+
+                st.rerun()
+
+
+        st.divider()
+
+
+        # ====================================================
+        # IMAGE UPLOAD
+        # ====================================================
+
+        st.markdown(
+            "### 🖼️ Upload Image"
+        )
+
+
+        image_file = st.file_uploader(
+            "Choose an image",
+            type=[
+                "png",
+                "jpg",
+                "jpeg",
+                "webp"
+            ],
+            label_visibility="collapsed",
+            key="ash_image_upload"
+        )
+
+
+        if image_file is not None:
+
+            st.session_state.image_bytes = (
+                image_file.getvalue()
+            )
+
+            st.session_state.image_name = (
+                image_file.name
+            )
+
+            st.session_state.image_type = (
+                image_file.type
+                or "image/png"
+            )
+
+
+            st.image(
+                st.session_state.image_bytes,
+                use_container_width=True
+            )
+
+
+            st.success(
+                "✅ Image attached"
+            )
+
+
+        if st.session_state.image_bytes:
+
+            if st.button(
+                "🗑️ Remove Image",
+                use_container_width=True,
+                key="remove_image"
+            ):
+
+                st.session_state.image_bytes = None
+
+                st.session_state.image_name = ""
+
+                st.session_state.image_type = (
+                    "image/png"
+                )
+
+                st.rerun()
+
+
+# ============================================================
+# CHAT INPUT
+# ============================================================
+
+with chat_col:
+
+    prompt = st.chat_input(
+        "Message ASH..."
+    )
+
+
+# ============================================================
 # STUDY INSTRUCTIONS
 # ============================================================
 
@@ -523,16 +530,19 @@ def get_instructions():
 
         "Normal Chat":
             """
-            Answer the user's question clearly and accurately.
-            Give useful information directly.
+            Answer the user's question clearly,
+            accurately and directly.
             """,
 
         "Explain Topic":
             """
-            Explain the topic like a beginner is learning it
-            for the first time.
+            Explain the topic as if the student
+            is learning it for the first time.
 
-            Use simple language, examples and steps.
+            Use:
+            - Very simple language
+            - Examples
+            - Step-by-step explanations
             """,
 
         "Make Notes":
@@ -551,13 +561,14 @@ def get_instructions():
             """
             Create 10 important MCQs.
 
-            Every question must contain:
+            Every question must have:
+
             A
             B
             C
             D
 
-            Clearly identify the correct answer.
+            Clearly show the correct answer.
             """,
 
         "Exam Questions":
@@ -579,7 +590,7 @@ def get_instructions():
 
 
 # ============================================================
-# BUILD PDF CONTEXT
+# PDF CONTEXT
 # ============================================================
 
 def get_pdf_context():
@@ -592,7 +603,7 @@ def get_pdf_context():
     pdf_text = st.session_state.pdf_text
 
 
-    # Keep prompt reasonably small
+    # Limit PDF context for speed
     if len(pdf_text) > 8000:
 
         pdf_text = pdf_text[:8000]
@@ -600,14 +611,14 @@ def get_pdf_context():
 
     return f"""
 
-The user uploaded study material.
+The user uploaded a PDF.
 
-Use the uploaded PDF as the main source
-when answering questions related to it.
+Use the PDF as the main source when
+answering questions related to it.
 
-If the answer is not present in the
-provided PDF, clearly say that you
-could not find it in the uploaded PDF.
+If the requested information is not
+present in the PDF, clearly tell the
+user that you could not find it there.
 
 PDF CONTENT:
 
@@ -618,10 +629,10 @@ PDF CONTENT:
 
 
 # ============================================================
-# ASK TEXT AI
+# BUILD CONVERSATION
 # ============================================================
 
-def ask_ai(prompt):
+def build_messages(prompt):
 
     system_prompt = f"""
 You are ASH, an all-in-one AI assistant.
@@ -631,23 +642,19 @@ You are ASH, an all-in-one AI assistant.
 Rules:
 
 - Answer the user's actual question.
-- Give direct and useful answers.
+- Give direct and useful information.
 - Use simple language.
 - Be accurate.
 - Avoid unnecessary repetition.
 - Explain difficult concepts step by step.
 - Give examples when useful.
-- For university questions, make answers easy to study.
-- Do not claim information came from a PDF unless it is
-  actually contained in the provided PDF.
+- Help university students understand topics.
+- Make exam answers easy to memorize.
+- Do not invent information from uploaded PDFs.
 
 {get_pdf_context()}
 """
 
-
-    # --------------------------------------------------------
-    # Previous conversation
-    # --------------------------------------------------------
 
     conversation = [
 
@@ -659,28 +666,36 @@ Rules:
     ]
 
 
-    # Keep recent history to avoid huge prompts
+    # Keep only recent conversation
     recent_messages = (
-        st.session_state.messages[-10:]
+        st.session_state.messages[-12:]
     )
 
 
     for message in recent_messages:
 
-        if message.get("role") in [
+        role = message.get("role")
+
+        content = message.get(
+            "content",
+            ""
+        )
+
+
+        if role in [
             "user",
             "assistant"
-        ]:
+        ] and content:
 
             conversation.append(
                 {
-                    "role": message["role"],
-                    "content": message["content"]
+                    "role": role,
+                    "content": content
                 }
             )
 
 
-    # Current question
+    # Current prompt
     conversation.append(
         {
             "role": "user",
@@ -689,11 +704,25 @@ Rules:
     )
 
 
+    return conversation
+
+
+# ============================================================
+# ASK AI
+# ============================================================
+
+def ask_ai(prompt):
+
+    messages = build_messages(
+        prompt
+    )
+
+
     response = client.chat.completions.create(
 
         model=TEXT_MODEL,
 
-        messages=conversation,
+        messages=messages,
 
         max_tokens=700,
 
@@ -709,66 +738,13 @@ Rules:
 
 
 # ============================================================
-# STREAM TEXT AI
+# STREAM AI
 # ============================================================
 
 def stream_ai(prompt):
 
-    system_prompt = f"""
-You are ASH, an all-in-one AI assistant.
-
-{get_instructions()}
-
-Rules:
-
-- Answer the user's actual question.
-- Be direct.
-- Use simple language.
-- Be accurate.
-- Avoid unnecessary repetition.
-- Explain difficult concepts step by step.
-- Give examples when useful.
-- Make university answers easy to memorize.
-
-{get_pdf_context()}
-"""
-
-
-    conversation = [
-
-        {
-            "role": "system",
-            "content": system_prompt
-        }
-
-    ]
-
-
-    recent_messages = (
-        st.session_state.messages[-10:]
-    )
-
-
-    for message in recent_messages:
-
-        if message.get("role") in [
-            "user",
-            "assistant"
-        ]:
-
-            conversation.append(
-                {
-                    "role": message["role"],
-                    "content": message["content"]
-                }
-            )
-
-
-    conversation.append(
-        {
-            "role": "user",
-            "content": prompt
-        }
+    messages = build_messages(
+        prompt
     )
 
 
@@ -776,7 +752,7 @@ Rules:
 
         model=TEXT_MODEL,
 
-        messages=conversation,
+        messages=messages,
 
         max_tokens=700,
 
@@ -784,9 +760,6 @@ Rules:
 
         stream=True
     )
-
-
-    full_answer = ""
 
 
     for chunk in stream:
@@ -799,11 +772,11 @@ Rules:
                 .content
             )
 
+
             if token:
 
-                full_answer += token
-
                 yield token
+
 
         except Exception:
 
@@ -822,6 +795,7 @@ def create_image(prompt):
 
         model=IMAGE_MODEL
     )
+
 
     return image
 
@@ -842,16 +816,41 @@ def analyze_image(prompt):
     )
 
 
+    encoded_image = base64.b64encode(
+        image_data
+    ).decode()
+
+
+    mime_type = (
+        st.session_state.image_type
+        or "image/png"
+    )
+
+
+    image_url = (
+        f"data:{mime_type};base64,"
+        + encoded_image
+    )
+
+
     messages = [
 
         {
             "role": "system",
-            "content": (
-                "You are ASH, an intelligent AI assistant. "
-                "Analyze the uploaded image carefully and "
-                "answer the user's question accurately."
-            )
+
+            "content":
+                """
+                You are ASH, an intelligent
+                AI assistant.
+
+                Carefully analyze uploaded
+                images.
+
+                Answer the user's question
+                accurately and clearly.
+                """
         },
+
 
         {
             "role": "user",
@@ -860,21 +859,17 @@ def analyze_image(prompt):
 
                 {
                     "type": "text",
+
                     "text": prompt
                 },
+
 
                 {
                     "type": "image_url",
 
                     "image_url": {
-                        "url": (
-                            "data:image/png;base64,"
-                            + __import__("base64")
-                            .b64encode(
-                                image_data
-                            )
-                            .decode()
-                        )
+
+                        "url": image_url
                     }
                 }
 
@@ -902,12 +897,85 @@ def analyze_image(prompt):
 
 
 # ============================================================
-# CHAT INPUT
+# IMAGE REQUEST DETECTION
 # ============================================================
 
-prompt = st.chat_input(
-    "Message ASH..."
-)
+def is_image_request(prompt):
+
+    text = prompt.lower().strip()
+
+
+    keywords = [
+
+        "generate image",
+
+        "create image",
+
+        "make an image",
+
+        "make image",
+
+        "generate a picture",
+
+        "create a picture",
+
+        "make a picture",
+
+        "draw "
+
+    ]
+
+
+    return any(
+        text.startswith(keyword)
+        for keyword in keywords
+    )
+
+
+# ============================================================
+# GET IMAGE PROMPT
+# ============================================================
+
+def clean_image_prompt(prompt):
+
+    prefixes = [
+
+        "generate image",
+
+        "create image",
+
+        "make an image",
+
+        "make image",
+
+        "generate a picture",
+
+        "create a picture",
+
+        "make a picture",
+
+        "draw"
+
+    ]
+
+
+    result = prompt.strip()
+
+
+    for prefix in prefixes:
+
+        if result.lower().startswith(
+            prefix
+        ):
+
+            result = result[
+                len(prefix):
+            ].strip()
+
+            break
+
+
+    return result
 
 
 # ============================================================
@@ -917,41 +985,6 @@ prompt = st.chat_input(
 if prompt:
 
     # ========================================================
-    # IMAGE REQUEST DETECTION
-    # ========================================================
-
-    lower_prompt = prompt.lower()
-
-
-    image_request = (
-
-        lower_prompt.startswith(
-            "generate image"
-        )
-
-        or lower_prompt.startswith(
-            "create image"
-        )
-
-        or lower_prompt.startswith(
-            "make an image"
-        )
-
-        or lower_prompt.startswith(
-            "draw "
-        )
-
-        or lower_prompt.startswith(
-            "generate a picture"
-        )
-
-        or lower_prompt.startswith(
-            "create a picture"
-        )
-    )
-
-
-    # ========================================================
     # SAVE USER MESSAGE
     # ========================================================
 
@@ -959,15 +992,22 @@ if prompt:
 
         {
             "role": "user",
+
             "content": prompt
         }
 
     )
 
 
+    # ========================================================
+    # SHOW USER
+    # ========================================================
+
     with st.chat_message("user"):
 
-        st.markdown(prompt)
+        st.markdown(
+            prompt
+        )
 
 
     # ========================================================
@@ -982,49 +1022,25 @@ if prompt:
             # IMAGE GENERATION
             # =================================================
 
-            if image_request:
+            if is_image_request(
+                prompt
+            ):
 
-                image_prompt = prompt
-
-
-                prefixes = [
-
-                    "generate image",
-
-                    "create image",
-
-                    "make an image",
-
-                    "draw",
-
-                    "generate a picture",
-
-                    "create a picture"
-
-                ]
-
-
-                for prefix in prefixes:
-
-                    if image_prompt.lower().startswith(
-                        prefix
-                    ):
-
-                        image_prompt = (
-                            image_prompt[
-                                len(prefix):
-                            ].strip()
-                        )
-
-                        break
+                image_prompt = (
+                    clean_image_prompt(
+                        prompt
+                    )
+                )
 
 
                 with st.spinner(
                     "🎨 Creating image..."
                 ):
 
-                    generated_image = create_image(
-                        image_prompt
+                    generated_image = (
+                        create_image(
+                            image_prompt
+                        )
                     )
 
 
@@ -1045,18 +1061,26 @@ if prompt:
                 )
 
 
+                image_bytes = (
+                    buffer.getvalue()
+                )
+
+
                 st.download_button(
 
                     "⬇️ Download Image",
 
-                    data=buffer.getvalue(),
+                    data=image_bytes,
 
                     file_name="ash_image.png",
 
-                    mime="image/png"
+                    mime="image/png",
+
+                    key="download_generated_image"
                 )
 
 
+                # Save assistant response
                 st.session_state.messages.append(
 
                     {
@@ -1096,20 +1120,25 @@ if prompt:
 
                     {
                         "role": "assistant",
+
                         "content": answer
                     }
 
                 )
 
 
-                # Clear image after use
+                # Clear image
                 st.session_state.image_bytes = None
 
                 st.session_state.image_name = ""
 
+                st.session_state.image_type = (
+                    "image/png"
+                )
+
 
             # =================================================
-            # NORMAL AI
+            # NORMAL AI CHAT
             # =================================================
 
             else:
@@ -1137,19 +1166,22 @@ if prompt:
                 if not full_answer:
 
                     full_answer = (
-                        "Sorry, I couldn't generate "
-                        "an answer."
+                        "Sorry, I couldn't "
+                        "generate an answer."
                     )
+
 
                     placeholder.markdown(
                         full_answer
                     )
 
 
+                # Save assistant response
                 st.session_state.messages.append(
 
                     {
                         "role": "assistant",
+
                         "content": full_answer
                     }
 
@@ -1162,7 +1194,9 @@ if prompt:
 
         except Exception as error:
 
-            error_message = str(error)
+            error_message = str(
+                error
+            )
 
 
             if (
@@ -1173,9 +1207,14 @@ if prompt:
             ):
 
                 st.error(
-                    "⚠️ ASH has temporarily reached "
-                    "the free inference limit. "
-                    "Please wait and try again."
+                    """
+                    ⚠️ ASH has temporarily
+                    reached the free AI
+                    inference limit.
+
+                    Please wait a little
+                    and try again.
+                    """
                 )
 
 
@@ -1187,9 +1226,13 @@ if prompt:
             ):
 
                 st.error(
-                    "⚠️ The selected AI provider is "
-                    "temporarily busy. Please try again "
-                    "in a moment."
+                    """
+                    ⚠️ The AI model is
+                    temporarily busy.
+
+                    Please try again in
+                    a few moments.
+                    """
                 )
 
 
@@ -1200,9 +1243,12 @@ if prompt:
             ):
 
                 st.error(
-                    "⚠️ Your Hugging Face token is "
-                    "invalid or does not have the "
-                    "required permission."
+                    """
+                    ⚠️ Your Hugging Face
+                    token is invalid or
+                    does not have the
+                    required permission.
+                    """
                 )
 
 
@@ -1228,6 +1274,7 @@ st.markdown(
         color:#666666;
         font-size:12px;
         margin-top:40px;
+        margin-bottom:20px;
     ">
         ASH • Your all-in-one AI assistant
     </div>
