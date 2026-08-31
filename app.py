@@ -829,15 +829,28 @@ diagram or visualization.
                     )
 
 
-                except Exception as e:
+               except Exception as e:
 
-                    st.error(
-                        "❌ Image generation failed."
-                    )
+    error_message = str(e)
 
-                    st.code(
-                        str(e)
-                    )
+    if (
+        "quota" in error_message.lower()
+        or "429" in error_message
+        or "RESOURCE_EXHAUSTED" in error_message
+    ):
+
+        st.warning(
+            "⚠️ Free AI quota has been reached. "
+            "Please wait and try again later."
+        )
+
+    else:
+
+        st.error(
+            "❌ Something went wrong."
+        )
+
+        st.code(error_message)
 
 
     # ========================================================
