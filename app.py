@@ -1,8 +1,11 @@
 import streamlit as st
 from google import genai
+from google.genai import types
 from pypdf import PdfReader
 from huggingface_hub import InferenceClient
 from io import BytesIO
+import wave
+
 
 # ============================================================
 # PAGE SETTINGS
@@ -13,6 +16,7 @@ st.set_page_config(
     page_icon="logo.png",
     layout="centered"
 )
+
 
 # ============================================================
 # API CONNECTIONS
@@ -25,6 +29,7 @@ client = genai.Client(
 image_client = InferenceClient(
     api_key=st.secrets["HF_TOKEN"]
 )
+
 
 # ============================================================
 # SESSION STATE
@@ -42,6 +47,13 @@ if "pdf_name" not in st.session_state:
 if "selected_mode" not in st.session_state:
     st.session_state.selected_mode = "💬 Normal Chat"
 
+if "voice_agent_answer" not in st.session_state:
+    st.session_state.voice_agent_answer = ""
+
+if "voice_agent_audio" not in st.session_state:
+    st.session_state.voice_agent_audio = None
+
+
 # ============================================================
 # TITLE
 # ============================================================
@@ -54,6 +66,7 @@ st.write(
     "Your AI-powered university study assistant."
 )
 
+
 # ============================================================
 # DISPLAY CHAT HISTORY
 # ============================================================
@@ -61,7 +74,9 @@ st.write(
 for message in st.session_state.messages:
 
     with st.chat_message(message["role"]):
+
         st.markdown(message["content"])
+
 
 # ============================================================
 # BOTTOM TOOL AREA
@@ -72,8 +87,9 @@ voice_col, chat_col, plus_col = st.columns(
     vertical_alignment="bottom"
 )
 
+
 # ============================================================
-# VOICE BUTTON - LEFT SIDE
+# VOICE BUTTON - LEFT
 # ============================================================
 
 with voice_col:
@@ -82,6 +98,7 @@ with voice_col:
         "🎤",
         label_visibility="collapsed"
     )
+
 
 # ============================================================
 # CHAT INPUT - CENTER
@@ -93,8 +110,9 @@ with chat_col:
         "Ask anything about your studies..."
     )
 
+
 # ============================================================
-# PLUS BUTTON - RIGHT SIDE
+# PLUS BUTTON - RIGHT
 # ============================================================
 
 with plus_col:
@@ -118,7 +136,8 @@ with plus_col:
             "📝 Make Notes",
             "❓ Generate MCQs",
             "🎯 Exam Questions",
-            "🎨 Generate Image"
+            "🎨 Generate Image",
+            "🎧 Voice Agent"
         ]
 
         selected_mode = st.radio(
@@ -209,6 +228,7 @@ with plus_col:
 
                 st.rerun()
 
+
 # ============================================================
 # VOICE PROCESSING
 # ============================================================
@@ -251,7 +271,7 @@ if audio_value is not None:
             )
 
             st.info(
-                "🎤 Voice question: "
+                "🎤 You said: "
                 + voice_prompt
             )
 
@@ -263,6 +283,7 @@ if audio_value is not None:
 
             st.code(str(e))
 
+
 # ============================================================
 # SELECT QUESTION
 # ============================================================
@@ -272,6 +293,7 @@ prompt = typed_prompt
 if voice_prompt:
 
     prompt = voice_prompt
+
 
 # ============================================================
 # PROCESS QUESTION
@@ -294,11 +316,13 @@ if prompt:
 
         st.markdown(prompt)
 
+
     # ========================================================
     # CURRENT MODE
     # ========================================================
 
     mode = st.session_state.selected_mode
+
 
     # ========================================================
     # STUDY MODE INSTRUCTIONS
@@ -361,12 +385,18 @@ if prompt:
             - Important concepts
             """,
 
-        "🎨 Generate Image":
+        "🎧 Voice Agent":
             """
-            The student wants to generate an
-            educational image or diagram.
+            Answer naturally like a friendly AI voice assistant.
+
+            Keep answers clear and conversational.
+
+            Use simple English.
+
+            Do not make the answer unnecessarily long.
             """
     }
+
 
     # ========================================================
     # PDF INSTRUCTIONS
@@ -401,6 +431,7 @@ No PDF has been uploaded.
 
 Use your normal knowledge to answer the question.
 """
+
 
     # ========================================================
     # IMAGE GENERATION
@@ -459,8 +490,9 @@ Use your normal knowledge to answer the question.
 
                 st.code(str(e))
 
+
     # ========================================================
-    # NORMAL AI CHAT
+    # NORMAL CHAT + VOICE AGENT RESPONSE
     # ========================================================
 
     else:
@@ -488,8 +520,9 @@ RULES:
 {pdf_instructions}
 """
 
+
         # ====================================================
-        # GEMINI RESPONSE
+        # TEXT RESPONSE
         # ====================================================
 
         with st.chat_message("assistant"):
@@ -524,10 +557,128 @@ RULES:
                         }
                     )
 
+
+                    # =================================================
+                    # VOICE AGENT TEXT-TO-SPEECH
+                    # =================================================
+
+                    if mode == "🎧 Voice Agent":
+
+                        with st.spinner(
+                            "🔊 Generating voice reply..."
+                        ):
+
+                            tts_response = (
+                                client.models.generate_content(
+                                    model=(
+                                        "gemini-3.1-flash-tts-preview"
+                                    ),
+                                    contents=(
+                                        "Speak this answer naturally and "
+                                        "clearly:\n\n"
+                                        + answer
+                                    ),
+                                    config=types.GenerateContentConfig(
+                                        response_modalities=[
+                                            "AUDIO"
+                                        ],
+                                        speech_config=types.SpeechConfig(
+                                            voice_config=(
+                                                types.VoiceConfig(
+                                                    prebuilt_voice_config=(
+                                                        types.PrebuiltVoiceConfig(
+                                                            voice_name="Kore"
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+
+                            # Get raw audio bytes
+                            audio_bytes = None
+
+                            for candidate in (
+                                tts_response.candidates
+                            ):
+
+                                if candidate.content:
+
+                                    for part in (
+                                        candidate.content.parts
+                                    ):
+
+                                        if (
+                                            hasattr(
+                                                part,
+                                                "inline_data"
+                                            )
+                                            and part.inline_data
+                                        ):
+
+                                            audio_bytes = (
+                                                part.inline_data.data
+                                            )
+
+                                            break
+
+                                if audio_bytes:
+                                    break
+
+
+                            # =========================================
+                            # CONVERT PCM TO WAV
+                            # =========================================
+
+                            if audio_bytes:
+
+                                wav_buffer = BytesIO()
+
+                                with wave.open(
+                                    wav_buffer,
+                                    "wb"
+                                ) as wav_file:
+
+                                    wav_file.setnchannels(1)
+                                    wav_file.setsampwidth(2)
+                                    wav_file.setframerate(24000)
+
+                                    wav_file.writeframes(
+                                        audio_bytes
+                                    )
+
+                                wav_buffer.seek(0)
+
+                                st.audio(
+                                    wav_buffer,
+                                    format="audio/wav"
+                                )
+
+                                st.download_button(
+                                    label="⬇️ Download Voice Reply",
+                                    data=wav_buffer.getvalue(),
+                                    file_name=(
+                                        "ash_voice_reply.wav"
+                                    ),
+                                    mime="audio/wav"
+                                )
+
+                            else:
+
+                                st.warning(
+                                    "The AI generated a text answer, "
+                                    "but no audio was returned."
+                                )
+
+
                 except Exception as e:
 
                     st.error(
                         "❌ Something went wrong."
                     )
 
-                    st.code(str(e))
+                    st.code(
+                        str(e)
+                    )
