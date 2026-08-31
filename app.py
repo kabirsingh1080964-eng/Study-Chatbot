@@ -69,7 +69,6 @@ st.session_state.voice_agent_active = False
 st.markdown(
 """ <style>
 
-```
 /* Main page width */
 .block-container {
     max-width: 900px;
@@ -97,7 +96,6 @@ div[data-testid="stAudioInput"] {
 </style>
 """,
 unsafe_allow_html=True
-```
 
 )
 
@@ -136,7 +134,6 @@ with st.chat_message(
     st.markdown(
         message["content"]
     )
-```
 
 # ============================================================
 
@@ -166,7 +163,6 @@ audio_value = st.audio_input(
     "🎤",
     label_visibility="collapsed"
 )
-```
 
 # ============================================================
 
@@ -176,11 +172,9 @@ audio_value = st.audio_input(
 
 with chat_col:
 
-```
 typed_prompt = st.chat_input(
     "Ask anything about your studies..."
 )
-```
 
 # ============================================================
 
@@ -190,7 +184,7 @@ typed_prompt = st.chat_input(
 
 with agent_col:
 
-```
+
 voice_agent_button = st.button(
     "🎧",
     help="Voice Agent",
@@ -206,7 +200,6 @@ if voice_agent_button:
     )
 
     st.rerun()
-```
 
 # ============================================================
 
@@ -216,7 +209,6 @@ if voice_agent_button:
 
 with plus_col:
 
-```
 with st.popover(
     "➕",
     use_container_width=True
@@ -361,7 +353,7 @@ with st.popover(
             st.session_state.pdf_name = ""
 
             st.rerun()
-```
+
 
 # ============================================================
 
@@ -373,7 +365,6 @@ voice_prompt = None
 
 if audio_value is not None:
 
-```
 with st.spinner(
     "🎧 Understanding..."
 ):
@@ -419,7 +410,6 @@ with st.spinner(
         st.code(
             str(e)
         )
-```
 
 # ============================================================
 
@@ -431,9 +421,9 @@ prompt = typed_prompt
 
 if voice_prompt:
 
-```
+
 prompt = voice_prompt
-```
+
 
 # ============================================================
 
@@ -443,7 +433,6 @@ prompt = voice_prompt
 
 if prompt:
 
-```
 # ========================================================
 # SAVE USER MESSAGE
 # ========================================================
@@ -645,7 +634,6 @@ else:
     # ====================================================
 
     system_prompt = f"""
-```
 
 You are ASH Study Assistant.
 
@@ -666,7 +654,6 @@ use it as the main source.
 {pdf_context}
 """
 
-```
     # ====================================================
     # GEMINI RESPONSE
     # ====================================================
