@@ -20,6 +20,63 @@ st.set_page_config(
 
 
 # ============================================================
+# CUSTOM DARK THEME STYLING
+# ============================================================
+
+st.markdown("""
+    <style>
+    /* Global Background and Text Color */
+    .stApp {
+        background-color: #000000;
+        color: #ffffff;
+    }
+    
+    /* Sidebar styling if expanded */
+    section[data-testid="stSidebar"] {
+        background-color: #121212;
+        color: #ffffff;
+    }
+
+    /* Input fields styling */
+    .stTextInput input, .stTextArea textarea {
+        background-color: #121212;
+        color: #ffffff;
+        border: 1px solid #262626;
+    }
+
+    /* Chat input box container */
+    div[data-testid="stChatInput"] {
+        background-color: #121212 !important;
+        border: 1px solid #262626 !important;
+        border-radius: 9999px !important;
+    }
+
+    div[data-testid="stChatInput"] textarea {
+        color: #ffffff !important;
+    }
+
+    /* Buttons styling */
+    .stButton button {
+        background-color: #121212;
+        color: #ffffff;
+        border: 1px solid #262626;
+        border-radius: 9999px;
+    }
+    
+    .stButton button:hover {
+        background-color: #262626;
+        border-color: #404040;
+    }
+
+    /* Headers & Text */
+    h1, h2, h3, h4, h5, h6, p, span {
+        color: #ffffff !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
 # API CLIENTS
 # ============================================================
 
@@ -47,14 +104,12 @@ image_client = get_image_client()
 # MODELS
 # ============================================================
 
-# Fast text model first.
 TEXT_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-3.7-flash"
 ]
 
-# Fast TTS model.
 TTS_MODELS = [
     "gemini-2.5-flash-preview-tts",
     "gemini-3.1-flash-tts-preview"
@@ -142,7 +197,6 @@ def generate_text(contents, max_output_tokens=600):
 
                 error_text = str(e).lower()
 
-                # Retry temporary errors
                 if (
                     "503" in error_text
                     or "unavailable" in error_text
@@ -214,11 +268,6 @@ def get_ai_answer(prompt):
 
     mode = st.session_state.selected_mode
 
-
-    # --------------------------------------------------------
-    # STUDY MODE INSTRUCTIONS
-    # --------------------------------------------------------
-
     instructions = {
 
         "💬 Normal Chat":
@@ -274,18 +323,12 @@ Include:
 """
     }
 
-
-    # --------------------------------------------------------
-    # PDF CONTEXT
-    # --------------------------------------------------------
-
     pdf_context = ""
 
     if st.session_state.pdf_text:
 
         pdf_text = st.session_state.pdf_text
 
-        # Keep prompt smaller for faster response
         if len(pdf_text) > 6000:
 
             pdf_text = pdf_text[:6000]
@@ -308,11 +351,6 @@ PDF CONTENT:
 -------------------------
 """
 
-
-    # --------------------------------------------------------
-    # SYSTEM PROMPT
-    # --------------------------------------------------------
-
     system_prompt = f"""
 You are ASH Study Assistant.
 
@@ -334,11 +372,6 @@ Rules:
 {pdf_context}
 """
 
-
-    # --------------------------------------------------------
-    # VOICE MODE PROMPT
-    # --------------------------------------------------------
-
     if st.session_state.voice_mode:
 
         system_prompt += """
@@ -355,7 +388,6 @@ Do not give very long lists unless the student asks.
 
 Sound natural, friendly and helpful.
 """
-
 
     return generate_text(
 
@@ -423,11 +455,6 @@ def generate_voice(answer):
                     )
                 )
 
-
-                # ------------------------------------------------
-                # FIND AUDIO
-                # ------------------------------------------------
-
                 audio_bytes = None
 
                 if response.candidates:
@@ -456,11 +483,9 @@ def generate_voice(answer):
                         if audio_bytes:
                             break
 
-
                 if audio_bytes:
 
                     return audio_bytes
-
 
             except Exception as e:
 
@@ -481,7 +506,6 @@ def generate_voice(answer):
                     continue
 
                 break
-
 
     raise Exception(
         f"TTS models failed.\n{last_error}"
@@ -595,11 +619,6 @@ with plus_col:
             "Study Tools"
         )
 
-
-        # ----------------------------------------------------
-        # STUDY MODES
-        # ----------------------------------------------------
-
         study_modes = [
 
             "💬 Normal Chat",
@@ -616,7 +635,6 @@ with plus_col:
 
         ]
 
-
         selected_mode = st.radio(
 
             "Choose Study Mode",
@@ -630,23 +648,15 @@ with plus_col:
             label_visibility="collapsed"
         )
 
-
         st.session_state.selected_mode = (
             selected_mode
         )
 
-
         st.divider()
-
-
-        # ----------------------------------------------------
-        # PDF
-        # ----------------------------------------------------
 
         st.write(
             "📄 Upload Study Material"
         )
-
 
         uploaded_file = st.file_uploader(
 
@@ -656,7 +666,6 @@ with plus_col:
 
             label_visibility="collapsed"
         )
-
 
         if uploaded_file is not None:
 
@@ -678,7 +687,6 @@ with plus_col:
                             text + "\n"
                         )
 
-
                 st.session_state.pdf_text = (
                     extracted_text
                 )
@@ -687,16 +695,13 @@ with plus_col:
                     uploaded_file.name
                 )
 
-
                 st.success(
                     f"✅ {uploaded_file.name} loaded"
                 )
 
-
                 st.caption(
                     f"{len(reader.pages)} pages"
                 )
-
 
             except Exception as e:
 
@@ -708,17 +713,11 @@ with plus_col:
                     str(e)
                 )
 
-
         elif st.session_state.pdf_name:
 
             st.success(
                 f"📄 {st.session_state.pdf_name} loaded"
             )
-
-
-        # ----------------------------------------------------
-        # REMOVE PDF
-        # ----------------------------------------------------
 
         if st.session_state.pdf_name:
 
@@ -750,11 +749,6 @@ if st.session_state.voice_mode:
         "Speak → ASH understands → ASH answers → ASH speaks."
     )
 
-
-    # --------------------------------------------------------
-    # VOICE INPUT
-    # --------------------------------------------------------
-
     voice_recording = st.audio_input(
 
         "🎤 Press record and speak",
@@ -762,23 +756,13 @@ if st.session_state.voice_mode:
         key="ash_voice_input"
     )
 
-
-    # --------------------------------------------------------
-    # PROCESS RECORDING
-    # --------------------------------------------------------
-
     if voice_recording is not None:
 
-        # Create an ID for the recording
         recording_id = (
             str(voice_recording.size)
             + "_"
             + str(voice_recording.type)
         )
-
-
-        # Prevent Streamlit from processing
-        # the same recording repeatedly.
 
         if (
             recording_id
@@ -788,11 +772,6 @@ if st.session_state.voice_mode:
             st.session_state.last_voice_id = (
                 recording_id
             )
-
-
-            # =================================================
-            # SPEECH TO TEXT
-            # =================================================
 
             with st.spinner(
                 "🎧 Understanding your voice..."
@@ -806,7 +785,6 @@ if st.session_state.voice_mode:
                         )
                     )
 
-
                 except Exception as e:
 
                     st.error(
@@ -819,11 +797,6 @@ if st.session_state.voice_mode:
 
                     voice_prompt = None
 
-
-            # =================================================
-            # AI RESPONSE
-            # =================================================
-
             if voice_prompt:
 
                 st.session_state.messages.append(
@@ -834,7 +807,6 @@ if st.session_state.voice_mode:
                     }
                 )
 
-
                 with st.chat_message(
                     "user"
                 ):
@@ -842,7 +814,6 @@ if st.session_state.voice_mode:
                     st.markdown(
                         voice_prompt
                     )
-
 
                 with st.chat_message(
                     "assistant"
@@ -864,7 +835,6 @@ if st.session_state.voice_mode:
                                 answer
                             )
 
-
                             st.session_state.messages.append(
 
                                 {
@@ -872,7 +842,6 @@ if st.session_state.voice_mode:
                                     "content": answer
                                 }
                             )
-
 
                         except Exception as e:
 
@@ -885,11 +854,6 @@ if st.session_state.voice_mode:
                             )
 
                             answer = None
-
-
-                # =================================================
-                # AI VOICE RESPONSE
-                # =================================================
 
                 if answer:
 
@@ -905,7 +869,6 @@ if st.session_state.voice_mode:
                                 )
                             )
 
-
                             if audio_bytes:
 
                                 wav_audio = (
@@ -913,7 +876,6 @@ if st.session_state.voice_mode:
                                         audio_bytes
                                     )
                                 )
-
 
                                 st.audio(
 
@@ -924,14 +886,12 @@ if st.session_state.voice_mode:
                                     autoplay=True
                                 )
 
-
                             else:
 
                                 st.warning(
                                     "ASH generated a text answer "
                                     "but no audio was returned."
                                 )
-
 
                         except Exception as e:
 
@@ -944,9 +904,7 @@ if st.session_state.voice_mode:
                                 str(e)
                             )
 
-
     st.divider()
-
 
     st.info(
         "🎙️ Voice mode is ON. "
@@ -962,11 +920,6 @@ if typed_prompt:
 
     prompt = typed_prompt
 
-
-    # --------------------------------------------------------
-    # SAVE USER MESSAGE
-    # --------------------------------------------------------
-
     st.session_state.messages.append(
 
         {
@@ -974,7 +927,6 @@ if typed_prompt:
             "content": prompt
         }
     )
-
 
     with st.chat_message(
         "user"
@@ -984,15 +936,9 @@ if typed_prompt:
             prompt
         )
 
-
     mode = (
         st.session_state.selected_mode
     )
-
-
-    # ========================================================
-    # IMAGE GENERATION
-    # ========================================================
 
     if mode == "🎨 Generate Image":
 
@@ -1018,7 +964,6 @@ if typed_prompt:
                         )
                     )
 
-
                     st.image(
 
                         image,
@@ -1031,9 +976,7 @@ if typed_prompt:
                         use_container_width=True
                     )
 
-
                     image_buffer = BytesIO()
-
 
                     image.save(
 
@@ -1041,7 +984,6 @@ if typed_prompt:
 
                         format="PNG"
                     )
-
 
                     st.download_button(
 
@@ -1058,7 +1000,6 @@ if typed_prompt:
                         mime="image/png"
                     )
 
-
                 except Exception as e:
 
                     st.error(
@@ -1068,11 +1009,6 @@ if typed_prompt:
                     st.code(
                         str(e)
                     )
-
-
-    # ========================================================
-    # NORMAL TEXT RESPONSE
-    # ========================================================
 
     else:
 
@@ -1092,11 +1028,9 @@ if typed_prompt:
                         )
                     )
 
-
                     st.markdown(
                         answer
                     )
-
 
                     st.session_state.messages.append(
 
@@ -1105,7 +1039,6 @@ if typed_prompt:
                             "content": answer
                         }
                     )
-
 
                 except Exception as e:
 
