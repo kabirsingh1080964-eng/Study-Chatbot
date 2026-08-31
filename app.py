@@ -5,6 +5,7 @@ from pypdf import PdfReader
 from huggingface_hub import InferenceClient
 from io import BytesIO
 import wave
+import time
 
 
 # ============================================================
@@ -24,6 +25,7 @@ st.set_page_config(
 
 @st.cache_resource
 def get_gemini_client():
+
     return genai.Client(
         api_key=st.secrets["GEMINI_API_KEY"]
     )
@@ -31,6 +33,7 @@ def get_gemini_client():
 
 @st.cache_resource
 def get_image_client():
+
     return InferenceClient(
         api_key=st.secrets["HF_TOKEN"]
     )
@@ -38,6 +41,24 @@ def get_image_client():
 
 client = get_gemini_client()
 image_client = get_image_client()
+
+
+# ============================================================
+# MODELS
+# ============================================================
+
+# Fast text model first.
+TEXT_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3.7-flash"
+]
+
+# Fast TTS model.
+TTS_MODELS = [
+    "gemini-2.5-flash-preview-tts",
+    "gemini-3.1-flash-tts-preview"
+]
 
 
 # ============================================================
@@ -59,89 +80,204 @@ if "selected_mode" not in st.session_state:
 if "voice_mode" not in st.session_state:
     st.session_state.voice_mode = False
 
-if "last_voice_audio" not in st.session_state:
-    st.session_state.last_voice_audio = None
+if "last_voice_id" not in st.session_state:
+    st.session_state.last_voice_id = ""
+
+if "voice_history" not in st.session_state:
+    st.session_state.voice_history = []
 
 
 # ============================================================
-# HELPER: PCM -> WAV
+# HELPER: PCM TO WAV
 # ============================================================
 
 def pcm_to_wav(pcm_data):
+
     buffer = BytesIO()
 
     with wave.open(buffer, "wb") as wav_file:
+
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2)
         wav_file.setframerate(24000)
+
         wav_file.writeframes(pcm_data)
 
     return buffer.getvalue()
 
 
 # ============================================================
-# HELPER: GEMINI TEXT RESPONSE
+# HELPER: GEMINI TEXT RESPONSE WITH RETRY
+# ============================================================
+
+def generate_text(contents, max_output_tokens=600):
+
+    last_error = None
+
+    for model_name in TEXT_MODELS:
+
+        for attempt in range(2):
+
+            try:
+
+                response = client.models.generate_content(
+
+                    model=model_name,
+
+                    contents=contents,
+
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=max_output_tokens,
+                        temperature=0.4
+                    )
+                )
+
+                if response.text:
+
+                    return response.text.strip()
+
+            except Exception as e:
+
+                last_error = e
+
+                error_text = str(e).lower()
+
+                # Retry temporary errors
+                if (
+                    "503" in error_text
+                    or "unavailable" in error_text
+                    or "high demand" in error_text
+                    or "429" in error_text
+                    or "resource exhausted" in error_text
+                ):
+
+                    time.sleep(1)
+
+                    continue
+
+                break
+
+    raise Exception(
+        f"All Gemini text models failed.\n{last_error}"
+    )
+
+
+# ============================================================
+# HELPER: TRANSCRIBE VOICE
+# ============================================================
+
+def transcribe_voice(audio_data):
+
+    mime_type = (
+        audio_data.type
+        if audio_data.type
+        else "audio/wav"
+    )
+
+    audio_file = client.files.upload(
+
+        file=audio_data,
+
+        config={
+            "mime_type": mime_type
+        }
+    )
+
+    prompt = """
+Listen carefully to the student's recording.
+
+Convert the student's speech into text.
+
+Return ONLY what the student said.
+
+Do not answer the question.
+
+Do not explain anything.
+
+Do not add words.
+"""
+
+    return generate_text(
+        [
+            audio_file,
+            prompt
+        ],
+        max_output_tokens=250
+    )
+
+
+# ============================================================
+# HELPER: GENERATE AI ANSWER
 # ============================================================
 
 def get_ai_answer(prompt):
 
     mode = st.session_state.selected_mode
 
+
+    # --------------------------------------------------------
+    # STUDY MODE INSTRUCTIONS
+    # --------------------------------------------------------
+
     instructions = {
 
         "💬 Normal Chat":
             """
-            Answer the student's question clearly
-            and accurately.
-            """,
+Answer the student's question clearly and accurately.
+""",
 
         "📚 Explain Topic":
             """
-            Explain the topic in extremely simple English.
+Explain the topic in extremely simple English.
 
-            Use:
-            - Simple language
-            - Examples
-            - Step-by-step explanation
+Use:
+- Simple language
+- Examples
+- Step-by-step explanation
 
-            Assume the student is a beginner.
-            """,
+Assume the student is a beginner.
+""",
 
         "📝 Make Notes":
             """
-            Create short revision notes.
+Create short revision notes.
 
-            Use:
-            - Headings
-            - Bullet points
-            - Definitions
-            - Examples
-            """,
+Use:
+- Headings
+- Bullet points
+- Definitions
+- Examples
+""",
 
         "❓ Generate MCQs":
             """
-            Create 10 important MCQs.
+Create 10 important MCQs.
 
-            Each question must have:
+Each question must contain:
 
-            A
-            B
-            C
-            D
+A
+B
+C
+D
 
-            Clearly show the correct answer.
-            """,
+Clearly show the correct answer.
+""",
 
         "🎯 Exam Questions":
             """
-            Create important university exam questions.
+Create important university exam-style questions.
 
-            Include:
-            - Short questions
-            - Long questions
-            - Important concepts
-            """
+Include:
+- Short questions
+- Long questions
+- Important concepts
+"""
     }
+
+
+    # --------------------------------------------------------
+    # PDF CONTEXT
+    # --------------------------------------------------------
 
     pdf_context = ""
 
@@ -149,34 +285,40 @@ def get_ai_answer(prompt):
 
         pdf_text = st.session_state.pdf_text
 
-        # Keep request reasonably small
+        # Keep prompt smaller for faster response
         if len(pdf_text) > 6000:
+
             pdf_text = pdf_text[:6000]
 
         pdf_context = f"""
 
-The student uploaded a PDF.
+The student uploaded university study material.
 
-Use the PDF as the main source.
+Use the material below as the main source.
 
-If the answer cannot be found in the PDF,
-say:
+If the answer cannot be found in the provided
+material, say:
 
 "I couldn't find this information in your uploaded PDF."
 
-PDF:
+PDF CONTENT:
 
 -------------------------
 {pdf_text}
 -------------------------
 """
 
+
+    # --------------------------------------------------------
+    # SYSTEM PROMPT
+    # --------------------------------------------------------
+
     system_prompt = f"""
 You are ASH Study Assistant.
 
 {instructions.get(
     mode,
-    "Answer the question clearly and accurately."
+    "Answer clearly and accurately."
 )}
 
 Rules:
@@ -192,88 +334,158 @@ Rules:
 {pdf_context}
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.7-flash",
-        contents=[
+
+    # --------------------------------------------------------
+    # VOICE MODE PROMPT
+    # --------------------------------------------------------
+
+    if st.session_state.voice_mode:
+
+        system_prompt += """
+
+You are currently talking to the student by voice.
+
+Speak conversationally.
+
+Keep your answer relatively short.
+
+Do not use unnecessary headings.
+
+Do not give very long lists unless the student asks.
+
+Sound natural, friendly and helpful.
+"""
+
+
+    return generate_text(
+
+        [
             system_prompt,
-            f"Student Question:\n{prompt}"
+
+            f"""
+Student Question:
+
+{prompt}
+"""
         ],
-        config=types.GenerateContentConfig(
-            max_output_tokens=700
-        )
+
+        max_output_tokens=500
     )
-
-    if response.text:
-        return response.text.strip()
-
-    return "Sorry, I couldn't generate an answer."
 
 
 # ============================================================
-# HELPER: GEMINI VOICE RESPONSE
+# HELPER: GENERATE VOICE
 # ============================================================
 
 def generate_voice(answer):
 
-    response = client.models.generate_content(
+    last_error = None
 
-        model="gemini-3.1-flash-tts-preview",
+    for model_name in TTS_MODELS:
 
-        contents=[
-            (
-                "Speak the following answer naturally, "
-                "clearly and conversationally. "
-                "Do not add extra information.\n\n"
-                + answer
-            )
-        ],
+        for attempt in range(2):
 
-        config=types.GenerateContentConfig(
+            try:
 
-            response_modalities=[
-                "AUDIO"
-            ],
+                response = client.models.generate_content(
 
-            speech_config=types.SpeechConfig(
+                    model=model_name,
 
-                voice_config=types.VoiceConfig(
+                    contents=[
+                        (
+                            "Speak the following answer "
+                            "naturally and conversationally. "
+                            "Use a friendly educational tone. "
+                            "Do not add extra information.\n\n"
+                            + answer
+                        )
+                    ],
 
-                    prebuilt_voice_config=(
-                        types.PrebuiltVoiceConfig(
-                            voice_name="Kore"
+                    config=types.GenerateContentConfig(
+
+                        response_modalities=[
+                            "AUDIO"
+                        ],
+
+                        speech_config=types.SpeechConfig(
+
+                            voice_config=(
+                                types.VoiceConfig(
+
+                                    prebuilt_voice_config=(
+                                        types.PrebuiltVoiceConfig(
+                                            voice_name="Kore"
+                                        )
+                                    )
+                                )
+                            )
                         )
                     )
                 )
-            )
-        )
-    )
 
-    audio_bytes = None
 
-    if response.candidates:
+                # ------------------------------------------------
+                # FIND AUDIO
+                # ------------------------------------------------
 
-        for candidate in response.candidates:
+                audio_bytes = None
 
-            if not candidate.content:
-                continue
+                if response.candidates:
 
-            for part in candidate.content.parts:
+                    for candidate in response.candidates:
+
+                        if not candidate.content:
+                            continue
+
+                        for part in candidate.content.parts:
+
+                            if (
+                                hasattr(
+                                    part,
+                                    "inline_data"
+                                )
+                                and part.inline_data
+                            ):
+
+                                audio_bytes = (
+                                    part.inline_data.data
+                                )
+
+                                break
+
+                        if audio_bytes:
+                            break
+
+
+                if audio_bytes:
+
+                    return audio_bytes
+
+
+            except Exception as e:
+
+                last_error = e
+
+                error_text = str(e).lower()
 
                 if (
-                    hasattr(part, "inline_data")
-                    and part.inline_data
+                    "503" in error_text
+                    or "unavailable" in error_text
+                    or "high demand" in error_text
+                    or "429" in error_text
+                    or "resource exhausted" in error_text
                 ):
 
-                    audio_bytes = (
-                        part.inline_data.data
-                    )
+                    time.sleep(1)
 
-                    break
+                    continue
 
-            if audio_bytes:
                 break
 
-    return audio_bytes
+
+    raise Exception(
+        f"TTS models failed.\n{last_error}"
+    )
 
 
 # ============================================================
@@ -285,7 +497,9 @@ st.image(
     width=130
 )
 
-st.title("ASH Study Assistant")
+st.title(
+    "ASH Study Assistant"
+)
 
 st.caption(
     "Your AI-powered university study assistant."
@@ -298,9 +512,13 @@ st.caption(
 
 for message in st.session_state.messages:
 
-    with st.chat_message(message["role"]):
+    with st.chat_message(
+        message["role"]
+    ):
 
-        st.markdown(message["content"])
+        st.markdown(
+            message["content"]
+        )
 
 
 # ============================================================
@@ -314,7 +532,7 @@ chat_col, voice_col, plus_col = st.columns(
 
 
 # ============================================================
-# CHAT INPUT
+# TEXT CHAT
 # ============================================================
 
 with chat_col:
@@ -325,16 +543,41 @@ with chat_col:
 
 
 # ============================================================
-# VOICE BUTTON
+# VOICE ASSISTANT BUTTON
 # ============================================================
 
 with voice_col:
 
-    voice_clicked = st.button(
-        "🎙️",
-        help="Talk to ASH Study Assistant",
-        use_container_width=True
+    if st.session_state.voice_mode:
+
+        voice_button = st.button(
+            "🔴",
+            help="Close voice assistant",
+            use_container_width=True
+        )
+
+    else:
+
+        voice_button = st.button(
+            "🎙️",
+            help="Open two-way voice assistant",
+            use_container_width=True
+        )
+
+
+# ============================================================
+# VOICE BUTTON ACTION
+# ============================================================
+
+if voice_button:
+
+    st.session_state.voice_mode = (
+        not st.session_state.voice_mode
     )
+
+    st.session_state.last_voice_id = ""
+
+    st.rerun()
 
 
 # ============================================================
@@ -348,37 +591,72 @@ with plus_col:
         use_container_width=True
     ):
 
-        st.subheader("Study Tools")
+        st.subheader(
+            "Study Tools"
+        )
+
+
+        # ----------------------------------------------------
+        # STUDY MODES
+        # ----------------------------------------------------
 
         study_modes = [
+
             "💬 Normal Chat",
+
             "📚 Explain Topic",
+
             "📝 Make Notes",
+
             "❓ Generate MCQs",
+
             "🎯 Exam Questions",
+
             "🎨 Generate Image"
+
         ]
 
+
         selected_mode = st.radio(
+
             "Choose Study Mode",
+
             study_modes,
+
             index=study_modes.index(
                 st.session_state.selected_mode
             ),
+
             label_visibility="collapsed"
         )
 
-        st.session_state.selected_mode = selected_mode
+
+        st.session_state.selected_mode = (
+            selected_mode
+        )
+
 
         st.divider()
 
-        st.write("📄 Upload Study Material")
+
+        # ----------------------------------------------------
+        # PDF
+        # ----------------------------------------------------
+
+        st.write(
+            "📄 Upload Study Material"
+        )
+
 
         uploaded_file = st.file_uploader(
+
             "Choose PDF",
+
             type=["pdf"],
+
             label_visibility="collapsed"
         )
+
 
         if uploaded_file is not None:
 
@@ -395,9 +673,11 @@ with plus_col:
                     text = page.extract_text()
 
                     if text:
+
                         extracted_text += (
                             text + "\n"
                         )
+
 
                 st.session_state.pdf_text = (
                     extracted_text
@@ -407,13 +687,16 @@ with plus_col:
                     uploaded_file.name
                 )
 
+
                 st.success(
                     f"✅ {uploaded_file.name} loaded"
                 )
 
+
                 st.caption(
                     f"{len(reader.pages)} pages"
                 )
+
 
             except Exception as e:
 
@@ -421,13 +704,21 @@ with plus_col:
                     "❌ Could not read PDF."
                 )
 
-                st.code(str(e))
+                st.code(
+                    str(e)
+                )
+
 
         elif st.session_state.pdf_name:
 
             st.success(
                 f"📄 {st.session_state.pdf_name} loaded"
             )
+
+
+        # ----------------------------------------------------
+        # REMOVE PDF
+        # ----------------------------------------------------
 
         if st.session_state.pdf_name:
 
@@ -437,22 +728,14 @@ with plus_col:
             ):
 
                 st.session_state.pdf_text = ""
+
                 st.session_state.pdf_name = ""
 
                 st.rerun()
 
 
 # ============================================================
-# VOICE MODE
-# ============================================================
-
-if voice_clicked:
-
-    st.session_state.voice_mode = True
-
-
-# ============================================================
-# TWO-WAY VOICE INTERFACE
+# TWO-WAY VOICE ASSISTANT
 # ============================================================
 
 if st.session_state.voice_mode:
@@ -464,182 +747,211 @@ if st.session_state.voice_mode:
     )
 
     st.caption(
-        "Speak to ASH and it will answer you with voice."
+        "Speak → ASH understands → ASH answers → ASH speaks."
     )
 
-    st.info(
-        "🎤 Record your question below."
-    )
+
+    # --------------------------------------------------------
+    # VOICE INPUT
+    # --------------------------------------------------------
 
     voice_recording = st.audio_input(
-        "🎤 Tap and speak",
-        key="voice_conversation_input"
+
+        "🎤 Press record and speak",
+
+        key="ash_voice_input"
     )
 
-    # --------------------------------------------
-    # PROCESS VOICE
-    # --------------------------------------------
+
+    # --------------------------------------------------------
+    # PROCESS RECORDING
+    # --------------------------------------------------------
 
     if voice_recording is not None:
 
-        # Prevent processing exact same recording
-        recording_id = str(
-            voice_recording.size
-        ) + str(
-            voice_recording.type
+        # Create an ID for the recording
+        recording_id = (
+            str(voice_recording.size)
+            + "_"
+            + str(voice_recording.type)
         )
+
+
+        # Prevent Streamlit from processing
+        # the same recording repeatedly.
 
         if (
             recording_id
-            != st.session_state.last_voice_audio
+            != st.session_state.last_voice_id
         ):
 
-            st.session_state.last_voice_audio = (
+            st.session_state.last_voice_id = (
                 recording_id
             )
 
+
+            # =================================================
+            # SPEECH TO TEXT
+            # =================================================
+
             with st.spinner(
-                "🎧 Listening..."
+                "🎧 Understanding your voice..."
             ):
 
                 try:
 
-                    audio_file = (
-                        client.files.upload(
-                            file=voice_recording,
-                            config={
-                                "mime_type":
-                                voice_recording.type
-                                or "audio/wav"
-                            }
-                        )
-                    )
-
-                    transcription = (
-                        client.models.generate_content(
-
-                            model="gemini-3.7-flash",
-
-                            contents=[
-                                audio_file,
-
-                                """
-                                Listen carefully.
-
-                                Convert the student's speech
-                                into text.
-
-                                Return ONLY what the student said.
-                                Do not answer.
-                                """
-                            ],
-
-                            config=(
-                                types.GenerateContentConfig(
-                                    max_output_tokens=200
-                                )
-                            )
-                        )
-                    )
-
                     voice_prompt = (
-                        transcription.text.strip()
+                        transcribe_voice(
+                            voice_recording
+                        )
                     )
 
-                    # ----------------------------------------
-                    # SHOW USER MESSAGE
-                    # ----------------------------------------
-
-                    st.session_state.messages.append(
-                        {
-                            "role": "user",
-                            "content": voice_prompt
-                        }
-                    )
-
-                    with st.chat_message("user"):
-
-                        st.markdown(
-                            voice_prompt
-                        )
-
-                    # ----------------------------------------
-                    # GET AI ANSWER
-                    # ----------------------------------------
-
-                    with st.chat_message("assistant"):
-
-                        with st.spinner(
-                            "🤖 Thinking..."
-                        ):
-
-                            answer = get_ai_answer(
-                                voice_prompt
-                            )
-
-                            st.markdown(
-                                answer
-                            )
-
-                    st.session_state.messages.append(
-                        {
-                            "role": "assistant",
-                            "content": answer
-                        }
-                    )
-
-                    # ----------------------------------------
-                    # GENERATE VOICE
-                    # ----------------------------------------
-
-                    with st.spinner(
-                        "🔊 Speaking..."
-                    ):
-
-                        audio_bytes = generate_voice(
-                            answer
-                        )
-
-                    if audio_bytes:
-
-                        wav_audio = pcm_to_wav(
-                            audio_bytes
-                        )
-
-                        st.audio(
-                            wav_audio,
-                            format="audio/wav",
-                            autoplay=True
-                        )
-
-                    else:
-
-                        st.warning(
-                            "AI answered, but voice "
-                            "audio was not returned."
-                        )
 
                 except Exception as e:
 
                     st.error(
-                        "❌ Voice conversation failed."
+                        "❌ Could not understand your voice."
                     )
 
                     st.code(
                         str(e)
                     )
 
+                    voice_prompt = None
+
+
+            # =================================================
+            # AI RESPONSE
+            # =================================================
+
+            if voice_prompt:
+
+                st.session_state.messages.append(
+
+                    {
+                        "role": "user",
+                        "content": voice_prompt
+                    }
+                )
+
+
+                with st.chat_message(
+                    "user"
+                ):
+
+                    st.markdown(
+                        voice_prompt
+                    )
+
+
+                with st.chat_message(
+                    "assistant"
+                ):
+
+                    with st.spinner(
+                        "🤖 Thinking..."
+                    ):
+
+                        try:
+
+                            answer = (
+                                get_ai_answer(
+                                    voice_prompt
+                                )
+                            )
+
+                            st.markdown(
+                                answer
+                            )
+
+
+                            st.session_state.messages.append(
+
+                                {
+                                    "role": "assistant",
+                                    "content": answer
+                                }
+                            )
+
+
+                        except Exception as e:
+
+                            st.error(
+                                "❌ AI response failed."
+                            )
+
+                            st.code(
+                                str(e)
+                            )
+
+                            answer = None
+
+
+                # =================================================
+                # AI VOICE RESPONSE
+                # =================================================
+
+                if answer:
+
+                    with st.spinner(
+                        "🔊 ASH is speaking..."
+                    ):
+
+                        try:
+
+                            audio_bytes = (
+                                generate_voice(
+                                    answer
+                                )
+                            )
+
+
+                            if audio_bytes:
+
+                                wav_audio = (
+                                    pcm_to_wav(
+                                        audio_bytes
+                                    )
+                                )
+
+
+                                st.audio(
+
+                                    wav_audio,
+
+                                    format="audio/wav",
+
+                                    autoplay=True
+                                )
+
+
+                            else:
+
+                                st.warning(
+                                    "ASH generated a text answer "
+                                    "but no audio was returned."
+                                )
+
+
+                        except Exception as e:
+
+                            st.warning(
+                                "⚠️ Text answer generated, "
+                                "but voice reply failed."
+                            )
+
+                            st.code(
+                                str(e)
+                            )
+
+
     st.divider()
 
-    if st.button(
-        "❌ Close Voice Assistant",
-        use_container_width=True
-    ):
 
-        st.session_state.voice_mode = False
-        st.session_state.last_voice_audio = None
-
-        st.rerun()
+    st.info(
+        "🎙️ Voice mode is ON. "
+        "Record your next question whenever you are ready."
+    )
 
 
 # ============================================================
@@ -650,18 +962,33 @@ if typed_prompt:
 
     prompt = typed_prompt
 
+
+    # --------------------------------------------------------
+    # SAVE USER MESSAGE
+    # --------------------------------------------------------
+
     st.session_state.messages.append(
+
         {
             "role": "user",
             "content": prompt
         }
     )
 
-    with st.chat_message("user"):
 
-        st.markdown(prompt)
+    with st.chat_message(
+        "user"
+    ):
 
-    mode = st.session_state.selected_mode
+        st.markdown(
+            prompt
+        )
+
+
+    mode = (
+        st.session_state.selected_mode
+    )
+
 
     # ========================================================
     # IMAGE GENERATION
@@ -669,7 +996,9 @@ if typed_prompt:
 
     if mode == "🎨 Generate Image":
 
-        with st.chat_message("assistant"):
+        with st.chat_message(
+            "assistant"
+        ):
 
             with st.spinner(
                 "🎨 Creating image..."
@@ -677,38 +1006,58 @@ if typed_prompt:
 
                 try:
 
-                    image = image_client.text_to_image(
-                        prompt=prompt,
-                        model=(
-                            "black-forest-labs/"
-                            "FLUX.1-schnell"
+                    image = (
+                        image_client.text_to_image(
+
+                            prompt=prompt,
+
+                            model=(
+                                "black-forest-labs/"
+                                "FLUX.1-schnell"
+                            )
                         )
                     )
 
+
                     st.image(
+
                         image,
+
                         caption=(
                             "Generated by "
                             "ASH Study Assistant"
                         ),
+
                         use_container_width=True
                     )
 
+
                     image_buffer = BytesIO()
 
+
                     image.save(
+
                         image_buffer,
+
                         format="PNG"
                     )
 
+
                     st.download_button(
+
                         "⬇️ Download Image",
-                        data=image_buffer.getvalue(),
+
+                        data=(
+                            image_buffer.getvalue()
+                        ),
+
                         file_name=(
                             "ash_study_image.png"
                         ),
+
                         mime="image/png"
                     )
+
 
                 except Exception as e:
 
@@ -716,7 +1065,10 @@ if typed_prompt:
                         "❌ Image generation failed."
                     )
 
-                    st.code(str(e))
+                    st.code(
+                        str(e)
+                    )
+
 
     # ========================================================
     # NORMAL TEXT RESPONSE
@@ -724,7 +1076,9 @@ if typed_prompt:
 
     else:
 
-        with st.chat_message("assistant"):
+        with st.chat_message(
+            "assistant"
+        ):
 
             with st.spinner(
                 "🤖 Thinking..."
@@ -732,20 +1086,26 @@ if typed_prompt:
 
                 try:
 
-                    answer = get_ai_answer(
-                        prompt
+                    answer = (
+                        get_ai_answer(
+                            prompt
+                        )
                     )
+
 
                     st.markdown(
                         answer
                     )
 
+
                     st.session_state.messages.append(
+
                         {
                             "role": "assistant",
                             "content": answer
                         }
                     )
+
 
                 except Exception as e:
 
@@ -753,4 +1113,6 @@ if typed_prompt:
                         "❌ Something went wrong."
                     )
 
-                    st.code(str(e))
+                    st.code(
+                        str(e)
+                    )
